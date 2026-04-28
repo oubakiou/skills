@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["url", "raw_text", "fetch_success", "error_message"],
+  "properties": {
+    "url": { "type": "string" },
+    "raw_text": { "type": "string" },
+    "fetch_success": { "type": "boolean" },
+    "error_message": { "type": "string" }
+  },
+  "additionalProperties": false
+}

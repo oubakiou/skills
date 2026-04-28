@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "required": ["query", "results", "search_success", "error_message"],
+  "properties": {
+    "query": { "type": "string" },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "title", "snippet"],
+        "properties": {
+          "url": { "type": "string" },
+          "title": { "type": "string" },
+          "snippet": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "search_success": { "type": "boolean" },
+    "error_message": { "type": "string" }
+  },
+  "additionalProperties": false
+}
