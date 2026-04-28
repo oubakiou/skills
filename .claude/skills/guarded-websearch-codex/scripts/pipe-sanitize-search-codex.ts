@@ -41,11 +41,13 @@ interface SanitizedSearchOutput {
 }
 
 interface AgentMessageEvent {
-  item?: {
-    text?: string
-    type?: string
-  }
-  type?: string
+  item: { text: string; type: 'agent_message' }
+  type: 'item.completed'
+}
+
+interface ErrorEvent {
+  message: string
+  type: 'error'
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -57,6 +59,9 @@ const isAgentMessageEvent = (value: unknown): value is AgentMessageEvent => {
   }
   return value.item.type === 'agent_message' && typeof value.item.text === 'string'
 }
+
+const isErrorEvent = (value: unknown): value is ErrorEvent =>
+  isRecord(value) && value.type === 'error' && typeof value.message === 'string'
 
 const isSearchResult = (value: unknown): value is SearchResult => {
   if (!isRecord(value)) {
@@ -78,74 +83,97 @@ const isWebUrl = (url: string): boolean => {
   }
 }
 
-const parseCodexSearchOutput = (text: string): CodexSearchOutput => {
-  let parsed: unknown
+const parseJsonStrict = (text: string, errorMessage: string): unknown => {
   try {
-    parsed = JSON.parse(text)
+    return JSON.parse(text) as unknown
   } catch {
-    throw new Error('Codex の最終メッセージが JSON ではありません')
+    throw new Error(errorMessage)
   }
-  if (!isRecord(parsed)) {
-    throw new Error('Codex の最終メッセージが JSON オブジェクトではありません')
+}
+
+const validateString = (value: unknown, fieldName: string): string => {
+  if (typeof value !== 'string') {
+    throw new Error(`Codex 出力の ${fieldName} が文字列ではありません`)
   }
-  if (typeof parsed.query !== 'string') {
-    throw new Error('Codex 出力の query が文字列ではありません')
+  return value
+}
+
+const validateBoolean = (value: unknown, fieldName: string): boolean => {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Codex 出力の ${fieldName} が boolean ではありません`)
   }
-  if (!Array.isArray(parsed.results)) {
+  return value
+}
+
+const validateResultsArray = (value: unknown): SearchResult[] => {
+  if (!Array.isArray(value)) {
     throw new Error('Codex 出力の results が配列ではありません')
   }
-  const results = parsed.results.map((item, index) => {
+  return value.map((item, index) => {
     if (!isSearchResult(item)) {
       throw new Error(`Codex 出力の results[${index}] が不正な形式です`)
     }
     return item
   })
-  if (typeof parsed.search_success !== 'boolean') {
-    throw new Error('Codex 出力の search_success が boolean ではありません')
-  }
-  if (typeof parsed.error_message !== 'string') {
-    throw new Error('Codex 出力の error_message が文字列ではありません')
+}
+
+const parseCodexSearchOutput = (text: string): CodexSearchOutput => {
+  const parsed = parseJsonStrict(text, 'Codex の最終メッセージが JSON ではありません')
+  if (!isRecord(parsed)) {
+    throw new Error('Codex の最終メッセージが JSON オブジェクトではありません')
   }
   return {
-    error_message: parsed.error_message,
-    query: parsed.query,
-    results,
-    search_success: parsed.search_success,
+    error_message: validateString(parsed.error_message, 'error_message'),
+    query: validateString(parsed.query, 'query'),
+    results: validateResultsArray(parsed.results),
+    search_success: validateBoolean(parsed.search_success, 'search_success'),
   }
 }
 
-export const extractSearchResults = (jsonl: string): CodexSearchOutput => {
-  const lines = jsonl
+const parseJsonlEvents = (jsonl: string): unknown[] =>
+  jsonl
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
+    .reduce<unknown[]>((acc, line) => {
+      try {
+        acc.push(JSON.parse(line))
+      } catch {
+        // JSON として解釈できない行は無視（Codex が JSONL に混在させる非構造化ログを想定）
+      }
+      return acc
+    }, [])
 
-  let lastMessage: string | null = null
-  let lastError: string | null = null
-
-  for (const line of lines) {
-    let event: unknown
-    try {
-      event = JSON.parse(line)
-    } catch {
-      continue
-    }
-    if (isAgentMessageEvent(event)) {
-      lastMessage = event.item?.text ?? null
-      continue
-    }
-    if (isRecord(event) && event.type === 'error' && typeof event.message === 'string') {
-      lastError = event.message
-    }
+const findLastAgentMessage = (events: unknown[]): string | undefined => {
+  const last = events.findLast(isAgentMessageEvent)
+  if (typeof last === 'undefined') {
+    return last
   }
+  return last.item.text
+}
 
-  if (lastMessage === null) {
-    if (lastError !== null) {
-      throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
-    }
-    throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
+const findLastErrorMessage = (events: unknown[]): string | undefined => {
+  const last = events.findLast(isErrorEvent)
+  if (typeof last === 'undefined') {
+    return last
   }
+  return last.message
+}
 
+const handleMissingMessage = (events: unknown[]): never => {
+  const lastError = findLastErrorMessage(events)
+  if (typeof lastError === 'string') {
+    throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
+  }
+  throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
+}
+
+export const extractSearchResults = (jsonl: string): CodexSearchOutput => {
+  const events = parseJsonlEvents(jsonl)
+  const lastMessage = findLastAgentMessage(events)
+  if (typeof lastMessage !== 'string') {
+    return handleMissingMessage(events)
+  }
   const output = parseCodexSearchOutput(lastMessage)
   if (!output.search_success) {
     throw new Error(`Codex search が失敗しました: ${output.error_message}`)
@@ -153,40 +181,33 @@ export const extractSearchResults = (jsonl: string): CodexSearchOutput => {
   return output
 }
 
-export const sanitizeSearchResults = (
-  query: string,
-  results: SearchResult[]
-): SanitizedSearchOutput => {
-  const suspiciousPatterns: string[] = []
-  let hadInvisibleChars = false
-  let filteredUnsafeUrls = 0
-
-  const sanitizedResults: SanitizedSearchResult[] = []
-
-  for (const item of results) {
-    if (!isWebUrl(item.url)) {
-      filteredUnsafeUrls += 1
-      continue
-    }
-
-    const titleDoc = sanitize(item.url, item.url, item.title)
-    const snippetDoc = sanitize(item.url, item.url, item.snippet)
-
-    suspiciousPatterns.push(...titleDoc.flags.suspicious_patterns)
-    suspiciousPatterns.push(...snippetDoc.flags.suspicious_patterns)
-    if (titleDoc.flags.had_invisible_chars || snippetDoc.flags.had_invisible_chars) {
-      hadInvisibleChars = true
-    }
-
-    sanitizedResults.push({
+const sanitizeSingleResult = (
+  item: SearchResult
+): { result: SanitizedSearchResult; suspicious: string[]; invisible: boolean } => {
+  const titleDoc = sanitize(item.url, item.url, item.title)
+  const snippetDoc = sanitize(item.url, item.url, item.snippet)
+  return {
+    invisible: titleDoc.flags.had_invisible_chars || snippetDoc.flags.had_invisible_chars,
+    result: {
       snippet: snippetDoc.text,
       snippet_flags: snippetDoc.flags,
       title: titleDoc.text,
       title_flags: titleDoc.flags,
       url: item.url,
-    })
+    },
+    suspicious: [...titleDoc.flags.suspicious_patterns, ...snippetDoc.flags.suspicious_patterns],
   }
+}
 
+export const sanitizeSearchResults = (
+  query: string,
+  results: SearchResult[]
+): SanitizedSearchOutput => {
+  const safeResults = results.filter((item) => isWebUrl(item.url))
+  const filteredUnsafeUrls = results.length - safeResults.length
+  const sanitized = safeResults.map((item) => sanitizeSingleResult(item))
+  const suspiciousPatterns = sanitized.flatMap((entry) => entry.suspicious)
+  const hadInvisibleChars = sanitized.some((entry) => entry.invisible)
   return {
     aggregate_flags: {
       filtered_unsafe_urls: filteredUnsafeUrls,
@@ -194,25 +215,35 @@ export const sanitizeSearchResults = (
       suspicious_patterns: suspiciousPatterns,
     },
     meta: {
-      result_count: sanitizedResults.length,
+      result_count: sanitized.length,
       sanitized_at: new Date().toISOString(),
     },
     query,
-    results: sanitizedResults,
+    results: sanitized.map((entry) => entry.result),
   }
 }
 
+const readStdin = async (): Promise<string> => {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+const formatThrown = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
 const main = async (): Promise<void> => {
-  const query = process.argv[2]
+  const [query] = process.argv.slice(2)
   if (typeof query !== 'string' || query.length === 0) {
     throw new Error('Usage: pipe-sanitize-search-codex.ts <QUERY>')
   }
-
-  let input = ''
-  for await (const chunk of process.stdin) {
-    input += String(chunk)
-  }
-
+  const input = await readStdin()
   const output = extractSearchResults(input)
   process.stdout.write(`${JSON.stringify(sanitizeSearchResults(query, output.results))}\n`)
 }
@@ -240,8 +271,7 @@ if (import.meta.vitest) {
 
 if (import.meta.main) {
   main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`${message}\n`)
-    process.exit(1)
+    process.stderr.write(`${formatThrown(error)}\n`)
+    process.exitCode = 1
   })
 }

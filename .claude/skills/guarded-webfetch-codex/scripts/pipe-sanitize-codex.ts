@@ -13,11 +13,13 @@ interface CodexFetchOutput {
 }
 
 interface AgentMessageEvent {
-  item?: {
-    text?: string
-    type?: string
-  }
-  type?: string
+  item: { text: string; type: 'agent_message' }
+  type: 'item.completed'
+}
+
+interface ErrorEvent {
+  message: string
+  type: 'error'
 }
 
 const parseUrl = (url: string): URL => {
@@ -51,82 +53,94 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 const isAgentMessageEvent = (value: unknown): value is AgentMessageEvent => {
-  if (!isRecord(value)) {
-    return false
-  }
-  if (value.type !== 'item.completed') {
-    return false
-  }
-  if (!isRecord(value.item)) {
+  if (!isRecord(value) || value.type !== 'item.completed' || !isRecord(value.item)) {
     return false
   }
   return value.item.type === 'agent_message' && typeof value.item.text === 'string'
 }
 
-const parseCodexFetchOutput = (text: string): CodexFetchOutput => {
-  let parsed: unknown
+const isErrorEvent = (value: unknown): value is ErrorEvent =>
+  isRecord(value) && value.type === 'error' && typeof value.message === 'string'
+
+const parseJsonStrict = (text: string, errorMessage: string): unknown => {
   try {
-    parsed = JSON.parse(text)
+    return JSON.parse(text) as unknown
   } catch {
-    throw new Error('Codex の最終メッセージが JSON ではありません')
-  }
-  if (!isRecord(parsed)) {
-    throw new Error('Codex の最終メッセージが JSON オブジェクトではありません')
-  }
-  if (typeof parsed.url !== 'string') {
-    throw new Error('Codex 出力の url が文字列ではありません')
-  }
-  if (typeof parsed.raw_text !== 'string') {
-    throw new Error('Codex 出力の raw_text が文字列ではありません')
-  }
-  if (typeof parsed.fetch_success !== 'boolean') {
-    throw new Error('Codex 出力の fetch_success が boolean ではありません')
-  }
-  if (typeof parsed.error_message !== 'string') {
-    throw new Error('Codex 出力の error_message が文字列ではありません')
-  }
-  return {
-    error_message: parsed.error_message,
-    fetch_success: parsed.fetch_success,
-    raw_text: parsed.raw_text,
-    url: parsed.url,
+    throw new Error(errorMessage)
   }
 }
 
-export const extractRawText = (jsonl: string): CodexFetchOutput => {
-  const lines = jsonl
+const validateString = (value: unknown, fieldName: string): string => {
+  if (typeof value !== 'string') {
+    throw new Error(`Codex 出力の ${fieldName} が文字列ではありません`)
+  }
+  return value
+}
+
+const validateBoolean = (value: unknown, fieldName: string): boolean => {
+  if (typeof value !== 'boolean') {
+    throw new Error(`Codex 出力の ${fieldName} が boolean ではありません`)
+  }
+  return value
+}
+
+const parseCodexFetchOutput = (text: string): CodexFetchOutput => {
+  const parsed = parseJsonStrict(text, 'Codex の最終メッセージが JSON ではありません')
+  if (!isRecord(parsed)) {
+    throw new Error('Codex の最終メッセージが JSON オブジェクトではありません')
+  }
+  return {
+    error_message: validateString(parsed.error_message, 'error_message'),
+    fetch_success: validateBoolean(parsed.fetch_success, 'fetch_success'),
+    raw_text: validateString(parsed.raw_text, 'raw_text'),
+    url: validateString(parsed.url, 'url'),
+  }
+}
+
+const parseJsonlEvents = (jsonl: string): unknown[] =>
+  jsonl
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
+    .reduce<unknown[]>((acc, line) => {
+      try {
+        acc.push(JSON.parse(line))
+      } catch {
+        // JSON として解釈できない行は無視（Codex が JSONL に混在させる非構造化ログを想定）
+      }
+      return acc
+    }, [])
 
-  let lastMessage: string | null = null
-  let lastError: string | null = null
-
-  for (const line of lines) {
-    let event: unknown
-    try {
-      event = JSON.parse(line)
-    } catch {
-      continue
-    }
-
-    if (isAgentMessageEvent(event)) {
-      lastMessage = event.item?.text ?? null
-      continue
-    }
-
-    if (isRecord(event) && event.type === 'error' && typeof event.message === 'string') {
-      lastError = event.message
-    }
+const findLastAgentMessage = (events: unknown[]): string | undefined => {
+  const last = events.findLast(isAgentMessageEvent)
+  if (typeof last === 'undefined') {
+    return last
   }
+  return last.item.text
+}
 
-  if (lastMessage === null) {
-    if (lastError !== null) {
-      throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
-    }
-    throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
+const findLastErrorMessage = (events: unknown[]): string | undefined => {
+  const last = events.findLast(isErrorEvent)
+  if (typeof last === 'undefined') {
+    return last
   }
+  return last.message
+}
 
+const handleMissingMessage = (events: unknown[]): never => {
+  const lastError = findLastErrorMessage(events)
+  if (typeof lastError === 'string') {
+    throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
+  }
+  throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
+}
+
+export const extractRawText = (jsonl: string): CodexFetchOutput => {
+  const events = parseJsonlEvents(jsonl)
+  const lastMessage = findLastAgentMessage(events)
+  if (typeof lastMessage !== 'string') {
+    return handleMissingMessage(events)
+  }
   const output = parseCodexFetchOutput(lastMessage)
   if (!output.fetch_success) {
     throw new Error(`Codex fetch が失敗しました: ${output.error_message}`)
@@ -134,18 +148,28 @@ export const extractRawText = (jsonl: string): CodexFetchOutput => {
   return output
 }
 
+const readStdin = async (): Promise<string> => {
+  const chunks: Buffer[] = []
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+const formatThrown = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
 const main = async (): Promise<void> => {
-  const requestedUrl = process.argv[2]
+  const [requestedUrl] = process.argv.slice(2)
   if (typeof requestedUrl !== 'string' || requestedUrl.length === 0) {
     throw new Error('Usage: pipe-sanitize-codex.ts <URL>')
   }
   validateCliUrl(requestedUrl)
-
-  let input = ''
-  for await (const chunk of process.stdin) {
-    input += String(chunk)
-  }
-
+  const input = await readStdin()
   const { raw_text: rawText, url: fetchedUrl } = extractRawText(input)
   validateUrlOriginMatch(requestedUrl, fetchedUrl)
   process.stdout.write(`${JSON.stringify(sanitize(requestedUrl, fetchedUrl, rawText))}\n`)
@@ -180,8 +204,7 @@ if (import.meta.vitest) {
 
 if (import.meta.main) {
   main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error)
-    process.stderr.write(`${message}\n`)
-    process.exit(1)
+    process.stderr.write(`${formatThrown(error)}\n`)
+    process.exitCode = 1
   })
 }
