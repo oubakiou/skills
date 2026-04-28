@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": ["query", "results", "search_success"],
+  "properties": {
+    "query": { "type": "string", "maxLength": 500 },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["url", "title", "snippet"],
+        "properties": {
+          "url": { "type": "string" },
+          "title": { "type": "string", "maxLength": 500 },
+          "snippet": { "type": "string", "maxLength": 2000 }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 10
+    },
+    "search_success": { "type": "boolean" },
+    "error_message": { "type": "string", "maxLength": 500 }
+  },
+  "additionalProperties": false
+}

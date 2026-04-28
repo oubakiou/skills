@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "vp check --fix \"$CLAUDE_FILE_PATH\"",
+            "statusMessage": "vp check --fix"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "vp check --fix \"$CLAUDE_FILE_PATH\"",
+            "statusMessage": "vp check --fix"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true
+  }
+}

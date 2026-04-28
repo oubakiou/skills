@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": ["WebSearch"],
+    "deny": [
+      "Read",
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "Bash",
+      "Agent",
+      "Glob",
+      "Grep",
+      "NotebookEdit",
+      "WebFetch"
+    ]
+  }
+}
