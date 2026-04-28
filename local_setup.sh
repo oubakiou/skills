@@ -10,6 +10,10 @@ sudo ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
 CODEX_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/codex"
 sudo ln -sf "$CODEX_BIN" /usr/local/bin/codex
 
+# gemini コマンドのシンボリックリンクを作成
+GEMINI_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/gemini"
+sudo ln -sf "$GEMINI_BIN" /usr/local/bin/gemini
+
 # .claude/settings.local.json が無ければ example からコピー
 if [ ! -f .claude/settings.local.json ]; then
   cp .claude/settings.example.json .claude/settings.local.json
