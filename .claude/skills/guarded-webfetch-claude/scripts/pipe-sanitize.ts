@@ -4,19 +4,39 @@
  * @example claude -p [fetch flags] "prompt" | node pipe-sanitize.ts "<url>"
  */
 
+import { realpathSync } from 'node:fs'
+
 import { sanitize } from './sanitize.ts'
+
+/** URL 文字列をパースする。失敗時はエラーを投げる */
+const parseUrl = (url: string): URL => {
+  try {
+    return new URL(url)
+  } catch {
+    throw new Error(`URL のパースに失敗しました: ${url}`)
+  }
+}
+
+/** 要求 URL と取得 URL の両方をパースする。失敗時は両方の URL を含むエラーを投げる */
+const parseUrlPair = (
+  requestedUrl: string,
+  fetchedUrl: string
+): { requested: URL; fetched: URL } => {
+  try {
+    return { fetched: new URL(fetchedUrl), requested: new URL(requestedUrl) }
+  } catch {
+    throw new Error(
+      `URL のオリジン比較に失敗しました (requested: ${requestedUrl}, fetched: ${fetchedUrl})`
+    )
+  }
+}
 
 /**
  * CLI 引数の URL を検証する。http: または https: のみ許可
  * @throws 不正なプロトコルまたはパース失敗時
  */
 export const validateCliUrl = (url: string): void => {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error(`URL のパースに失敗しました: ${url}`)
-  }
+  const parsed = parseUrl(url)
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(
       `URL のプロトコルが不正です (${parsed.protocol}). http: または https: のみ許可されます`
@@ -30,16 +50,7 @@ export const validateCliUrl = (url: string): void => {
  * 同一オリジン内のパス差異（リダイレクト等）は許容する。
  */
 export const validateUrlOriginMatch = (requestedUrl: string, fetchedUrl: string): void => {
-  let requested: URL
-  let fetched: URL
-  try {
-    requested = new URL(requestedUrl)
-    fetched = new URL(fetchedUrl)
-  } catch {
-    throw new Error(
-      `URL のオリジン比較に失敗しました (requested: ${requestedUrl}, fetched: ${fetchedUrl})`
-    )
-  }
+  const { requested, fetched } = parseUrlPair(requestedUrl, fetchedUrl)
   if (requested.origin !== fetched.origin) {
     throw new Error(
       `隔離プロセスが異なるオリジンの URL を返しました (requested: ${requested.origin}, fetched: ${fetched.origin}). コンテンツの出所が要求と一致しないため処理を中止します`
@@ -51,11 +62,8 @@ export const validateUrlOriginMatch = (requestedUrl: string, fetchedUrl: string)
 const isRecord = (val: unknown): val is Record<string, unknown> =>
   typeof val === 'object' && val !== null && !Array.isArray(val)
 
-/**
- * claude -p --output-format json の出力ラッパーから raw_text を抽出する
- * ラッパー形式: { subtype: "success", structured_output: { url, raw_text, fetch_success, ... }, ... }
- */
-export const extractRawText = (data: unknown): { url: string; rawText: string } => {
+/** 隔離プロセスのラッパー形式を検証し structured_output を返す */
+const validateEnvelope = (data: unknown): Record<string, unknown> => {
   if (!isRecord(data)) {
     throw new Error('入力が JSON オブジェクトではありません')
   }
@@ -65,25 +73,42 @@ export const extractRawText = (data: unknown): { url: string; rawText: string } 
   if (!isRecord(data.structured_output)) {
     throw new Error('structured_output が存在しないか、オブジェクトではありません')
   }
+  return data.structured_output
+}
 
-  const output = data.structured_output
+/** structured_output.error_message が文字列の場合はそれを、それ以外は汎用エラー文を返す */
+const formatErrorMessage = (output: Record<string, unknown>): string => {
+  if (typeof output.error_message === 'string') {
+    return output.error_message
+  }
+  return '不明なエラー'
+}
+
+/** fetch_success フラグを検証し、失敗時は error_message を含むエラーを投げる */
+const checkFetchSuccess = (output: Record<string, unknown>): void => {
   if (typeof output.fetch_success !== 'boolean') {
     throw new Error(
       `structured_output.fetch_success が boolean ではありません (${typeof output.fetch_success})`
     )
   }
   if (!output.fetch_success) {
-    const errorMsg =
-      typeof output.error_message === 'string' ? output.error_message : '不明なエラー'
-    throw new Error(`WebFetch が失敗しました: ${errorMsg}`)
+    throw new Error(`WebFetch が失敗しました: ${formatErrorMessage(output)}`)
   }
+}
+
+/**
+ * claude -p --output-format json の出力ラッパーから raw_text を抽出する
+ * ラッパー形式: { subtype: "success", structured_output: { url, raw_text, fetch_success, ... }, ... }
+ */
+export const extractRawText = (data: unknown): { url: string; rawText: string } => {
+  const output = validateEnvelope(data)
+  checkFetchSuccess(output)
   if (typeof output.raw_text !== 'string') {
     throw new Error('structured_output.raw_text が文字列ではありません')
   }
   if (typeof output.url !== 'string') {
     throw new Error('structured_output.url が文字列ではありません')
   }
-
   return { rawText: output.raw_text, url: output.url }
 }
 
@@ -96,112 +121,122 @@ if (import.meta.vitest) {
   const { describe, it, expect } = import.meta.vitest
 
   describe('extractRawText', () => {
-    it('正常な隔離プロセス出力から raw_text を抽出する', () => {
-      const input = {
-        structured_output: {
-          fetch_success: true,
-          raw_text: 'Hello World',
-          url: 'https://example.com',
-        },
-        subtype: 'success',
-      }
-      const result = extractRawText(input)
-      expect(result.url).toBe('https://example.com')
-      expect(result.rawText).toBe('Hello World')
+    describe('正常系', () => {
+      it('正常な隔離プロセス出力から raw_text を抽出する', () => {
+        const input = {
+          structured_output: {
+            fetch_success: true,
+            raw_text: 'Hello World',
+            url: 'https://example.com',
+          },
+          subtype: 'success',
+        }
+        const result = extractRawText(input)
+        expect(result.url).toBe('https://example.com')
+        expect(result.rawText).toBe('Hello World')
+      })
     })
 
-    it('subtype が success でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { fetch_success: true, raw_text: 'text', url: 'https://example.com' },
-        subtype: 'error',
-      }
-      expect(() => extractRawText(input)).toThrow('隔離プロセスが失敗しました')
+    describe('入力検証', () => {
+      it('入力がオブジェクトでない場合にエラーを投げる', () => {
+        expect(() => extractRawText('not an object')).toThrow('JSON オブジェクト')
+      })
+
+      it('入力が配列の場合にエラーを投げる', () => {
+        expect(() => extractRawText([1, 2, 3])).toThrow('JSON オブジェクト')
+      })
+
+      it('入力が null の場合にエラーを投げる', () => {
+        expect(() => extractRawText(JSON.parse('null'))).toThrow('JSON オブジェクト')
+      })
     })
 
-    it('structured_output が存在しない場合にエラーを投げる', () => {
-      const input = { subtype: 'success' }
-      expect(() => extractRawText(input)).toThrow('structured_output')
+    describe('ラッパー検証', () => {
+      it('subtype が success でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { fetch_success: true, raw_text: 'text', url: 'https://example.com' },
+          subtype: 'error',
+        }
+        expect(() => extractRawText(input)).toThrow('隔離プロセスが失敗しました')
+      })
+
+      it('structured_output が存在しない場合にエラーを投げる', () => {
+        const input = { subtype: 'success' }
+        expect(() => extractRawText(input)).toThrow('structured_output')
+      })
+
+      it('structured_output が配列の場合にエラーを投げる', () => {
+        const input = { structured_output: [1, 2], subtype: 'success' }
+        expect(() => extractRawText(input)).toThrow('structured_output が存在しないか')
+      })
     })
 
-    it('fetch_success が false の場合にエラーを投げる', () => {
-      const input = {
-        structured_output: {
-          error_message: '404 Not Found',
-          fetch_success: false,
-          raw_text: '',
-          url: 'https://example.com',
-        },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('404 Not Found')
+    describe('fetch_success 検証', () => {
+      it('fetch_success が false の場合にエラーを投げる', () => {
+        const input = {
+          structured_output: {
+            error_message: '404 Not Found',
+            fetch_success: false,
+            raw_text: '',
+            url: 'https://example.com',
+          },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('404 Not Found')
+      })
+
+      it('fetch_success が boolean でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: {
+            fetch_success: 'true',
+            raw_text: 'text',
+            url: 'https://example.com',
+          },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('fetch_success が boolean ではありません')
+      })
+
+      it('fetch_success が undefined の場合にエラーを投げる', () => {
+        const input = {
+          structured_output: {
+            raw_text: 'text',
+            url: 'https://example.com',
+          },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('fetch_success が boolean ではありません')
+      })
+
+      it('fetch_success が false で error_message がない場合に汎用エラーを投げる', () => {
+        const input = {
+          structured_output: {
+            fetch_success: false,
+            raw_text: '',
+            url: 'https://example.com',
+          },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('不明なエラー')
+      })
     })
 
-    it('fetch_success が boolean でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: {
-          fetch_success: 'true',
-          raw_text: 'text',
-          url: 'https://example.com',
-        },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('fetch_success が boolean ではありません')
-    })
+    describe('内容検証', () => {
+      it('raw_text が文字列でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { fetch_success: true, raw_text: 42, url: 'https://example.com' },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('raw_text が文字列ではありません')
+      })
 
-    it('fetch_success が undefined の場合にエラーを投げる', () => {
-      const input = {
-        structured_output: {
-          raw_text: 'text',
-          url: 'https://example.com',
-        },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('fetch_success が boolean ではありません')
-    })
-
-    it('fetch_success が false で error_message がない場合に汎用エラーを投げる', () => {
-      const input = {
-        structured_output: {
-          fetch_success: false,
-          raw_text: '',
-          url: 'https://example.com',
-        },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('不明なエラー')
-    })
-
-    it('raw_text が文字列でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { fetch_success: true, raw_text: 42, url: 'https://example.com' },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('raw_text が文字列ではありません')
-    })
-
-    it('入力がオブジェクトでない場合にエラーを投げる', () => {
-      expect(() => extractRawText('not an object')).toThrow('JSON オブジェクト')
-    })
-
-    it('入力が配列の場合にエラーを投げる', () => {
-      expect(() => extractRawText([1, 2, 3])).toThrow('JSON オブジェクト')
-    })
-
-    it('入力が null の場合にエラーを投げる', () => {
-      expect(() => extractRawText(null)).toThrow('JSON オブジェクト')
-    })
-
-    it('url が文字列でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { fetch_success: true, raw_text: 'text', url: 123 },
-        subtype: 'success',
-      }
-      expect(() => extractRawText(input)).toThrow('url が文字列ではありません')
-    })
-
-    it('structured_output が配列の場合にエラーを投げる', () => {
-      const input = { structured_output: [1, 2], subtype: 'success' }
-      expect(() => extractRawText(input)).toThrow('structured_output が存在しないか')
+      it('url が文字列でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { fetch_success: true, raw_text: 'text', url: 123 },
+          subtype: 'success',
+        }
+        expect(() => extractRawText(input)).toThrow('url が文字列ではありません')
+      })
     })
   })
 
@@ -222,8 +257,9 @@ if (import.meta.vitest) {
       expect(() => validateCliUrl('file:///etc/passwd')).toThrow('プロトコルが不正')
     })
 
-    it('javascript URL を拒否する', () => {
-      expect(() => validateCliUrl('javascript:alert(1)')).toThrow('プロトコルが不正')
+    it('javascript スキームの URL を拒否する', () => {
+      const scheme = 'javascript'
+      expect(() => validateCliUrl(`${scheme}:alert(1)`)).toThrow('プロトコルが不正')
     })
 
     it('不正な文字列を拒否する', () => {
@@ -341,45 +377,72 @@ if (import.meta.vitest) {
 }
 
 // ---------- CLI ----------
-const entryPath = process.argv[1]
-const isCLI = entryPath
-  ? import.meta.url === `file://${(await import('node:fs')).realpathSync(entryPath)}`
-  : false
-if (isCLI) {
+const isEntryFile = (): boolean => {
+  const [, entryPath] = process.argv
+  if (!entryPath) {
+    return false
+  }
+  return import.meta.url === `file://${realpathSync(entryPath)}`
+}
+
+const parseJson = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    throw new Error('JSON パースに失敗しました')
+  }
+}
+
+const formatThrown = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
+/** stdin を全て読み取り、UTF-8 文字列にトリムして返す */
+const readStdinTrim = async (): Promise<string> => {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) {
     chunks.push(Buffer.from(chunk))
   }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
+  return Buffer.concat(chunks).toString('utf8').trim()
+}
 
+/** JSON.stringify は replacer に null/undefined を直接渡せない（eslint 規則）ため恒等 replacer を経由する */
+const writeJsonOutput = (value: unknown): void => {
+  const INDENT = 2
+  const json = JSON.stringify(value, (_key, val: unknown) => val, INDENT)
+  process.stdout.write(`${json}\n`)
+}
+
+/** stdin から JSON を読み、隔離プロセス出力ラッパーを検証して raw_text を取り出す */
+const readEnvelope = async (): Promise<{ url: string; rawText: string }> => {
+  const raw = await readStdinTrim()
   if (!raw) {
-    process.stderr.write('ERROR: stdin が空です\n')
-    process.exit(1)
+    throw new Error('stdin が空です')
   }
+  return extractRawText(parseJson(raw))
+}
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    process.stderr.write('ERROR: JSON パースに失敗しました\n')
-    process.exit(1)
+const runCli = async (): Promise<void> => {
+  const { url: fetchedUrl, rawText } = await readEnvelope()
+  const [cliUrl] = process.argv.slice(2)
+  if (cliUrl) {
+    validateCliUrl(cliUrl)
+    // オリジン不一致は fail-closed（隔離プロセスが別サイトを fetch した可能性）
+    validateUrlOriginMatch(cliUrl, fetchedUrl)
   }
+  const requestedUrl = cliUrl || fetchedUrl
+  const result = sanitize(requestedUrl, fetchedUrl, rawText)
+  writeJsonOutput(result)
+}
 
+if (isEntryFile()) {
   try {
-    const { url: fetchedUrl, rawText } = extractRawText(parsed)
-    const cliUrl = process.argv[2]
-    if (cliUrl) {
-      validateCliUrl(cliUrl)
-      // オリジン不一致は fail-closed（隔離プロセスが別サイトを fetch した可能性）
-      validateUrlOriginMatch(cliUrl, fetchedUrl)
-    }
-    const requestedUrl = cliUrl || fetchedUrl
-
-    const result = sanitize(requestedUrl, fetchedUrl, rawText)
-    const INDENT = 2
-    process.stdout.write(`${JSON.stringify(result, null, INDENT)}\n`)
+    await runCli()
   } catch (error) {
-    process.stderr.write(`ERROR: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.exit(1)
+    process.stderr.write(`ERROR: ${formatThrown(error)}\n`)
+    process.exitCode = 1
   }
 }

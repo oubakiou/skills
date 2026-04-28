@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "vp check --fix \"$CLAUDE_FILE_PATH\"",
+            "command": ".claude/hooks/vp-check-fix.sh",
             "statusMessage": "vp check --fix"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "vp check --fix \"$CLAUDE_FILE_PATH\"",
+            "command": ".claude/hooks/vp-check-fix.sh",
             "statusMessage": "vp check --fix"
           }
         ]

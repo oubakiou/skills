@@ -4,8 +4,9 @@
  * @example claude -p [search flags] "prompt" | node pipe-sanitize-search.ts "<query>"
  */
 
-import { sanitize } from './sanitize.ts'
-import type { SanitizeFlags } from './sanitize.ts'
+import { type SanitizeFlags, sanitize } from './sanitize.ts'
+
+import { realpathSync } from 'node:fs'
 
 /** サニタイズ済み検索結果 */
 interface SanitizedSearchResult {
@@ -47,19 +48,16 @@ const isRecord = (val: unknown): val is Record<string, unknown> =>
 
 /** 検索結果アイテムの型ガード */
 const isSearchResult = (val: unknown): val is { url: string; title: string; snippet: string } => {
-  if (!isRecord(val)) {return false}
+  if (!isRecord(val)) {
+    return false
+  }
   return (
     typeof val.url === 'string' && typeof val.title === 'string' && typeof val.snippet === 'string'
   )
 }
 
-/**
- * claude -p --output-format json の出力ラッパーから検索結果を抽出する
- * ラッパー形式: { subtype: "success", structured_output: { query, results, search_success, ... }, ... }
- */
-export const extractSearchResults = (
-  data: unknown
-): { query: string; results: { url: string; title: string; snippet: string }[] } => {
+/** 隔離プロセスのラッパー形式を検証し structured_output を返す */
+const validateSearchEnvelope = (data: unknown): Record<string, unknown> => {
   if (!isRecord(data)) {
     throw new Error('入力が JSON オブジェクトではありません')
   }
@@ -69,36 +67,61 @@ export const extractSearchResults = (
   if (!isRecord(data.structured_output)) {
     throw new Error('structured_output が存在しないか、オブジェクトではありません')
   }
+  return data.structured_output
+}
 
-  const output = data.structured_output
+/** structured_output.error_message が文字列の場合はそれを、それ以外は汎用エラー文を返す */
+const formatErrorMessage = (output: Record<string, unknown>): string => {
+  if (typeof output.error_message === 'string') {
+    return output.error_message
+  }
+  return '不明なエラー'
+}
+
+/** search_success フラグを検証し、失敗時は error_message を含むエラーを投げる */
+const checkSearchSuccess = (output: Record<string, unknown>): void => {
   if (typeof output.search_success !== 'boolean') {
     throw new Error(
       `structured_output.search_success が boolean ではありません (${typeof output.search_success})`
     )
   }
   if (!output.search_success) {
-    const errorMsg =
-      typeof output.error_message === 'string' ? output.error_message : '不明なエラー'
-    throw new Error(`WebSearch が失敗しました: ${errorMsg}`)
+    throw new Error(`WebSearch が失敗しました: ${formatErrorMessage(output)}`)
   }
-  if (typeof output.query !== 'string') {
-    throw new Error('structured_output.query が文字列ではありません')
-  }
+}
+
+/** structured_output.results 配列を検証し、検索結果アイテムの配列を返す */
+const extractAndValidateResults = (
+  output: Record<string, unknown>
+): { url: string; title: string; snippet: string }[] => {
   if (!Array.isArray(output.results)) {
     throw new Error('structured_output.results が配列ではありません')
   }
-
   const results: { url: string; title: string; snippet: string }[] = []
-  for (let i = 0; i < output.results.length; i++) {
-    const item: unknown = output.results[i]
+  for (const [index, item] of (output.results as unknown[]).entries()) {
     if (!isSearchResult(item)) {
       throw new Error(
-        `structured_output.results[${i}] が不正な形式です. スキーマ制約付き隔離チャネルで型崩れが発生したため処理を中止します`
+        `structured_output.results[${index}] が不正な形式です. スキーマ制約付き隔離チャネルで型崩れが発生したため処理を中止します`
       )
     }
     results.push({ snippet: item.snippet, title: item.title, url: item.url })
   }
+  return results
+}
 
+/**
+ * claude -p --output-format json の出力ラッパーから検索結果を抽出する
+ * ラッパー形式: { subtype: "success", structured_output: { query, results, search_success, ... }, ... }
+ */
+export const extractSearchResults = (
+  data: unknown
+): { query: string; results: { url: string; title: string; snippet: string }[] } => {
+  const output = validateSearchEnvelope(data)
+  checkSearchSuccess(output)
+  if (typeof output.query !== 'string') {
+    throw new Error('structured_output.query が文字列ではありません')
+  }
+  const results = extractAndValidateResults(output)
   return { query: output.query, results }
 }
 
@@ -116,8 +139,10 @@ export const sanitizeSearchResults = (
 
   // http: / https: 以外のスキームを持つ結果を除外（隔離プロセスの改竄・幻覚対策）
   const safeResults = results.filter((item) => {
-    if (isWebUrl(item.url)) {return true}
-    filteredUnsafeUrls++
+    if (isWebUrl(item.url)) {
+      return true
+    }
+    filteredUnsafeUrls += 1
     return false
   })
 
@@ -166,123 +191,137 @@ if (import.meta.vitest) {
   const { describe, it, expect } = import.meta.vitest
 
   describe('extractSearchResults', () => {
-    it('正常な隔離プロセス出力から検索結果を抽出する', () => {
-      const input = {
-        structured_output: {
-          query: 'test query',
-          results: [
-            { url: 'https://example.com', title: 'Example', snippet: 'A test page' },
-            { url: 'https://example.org', title: 'Example Org', snippet: 'Another page' },
-          ],
-          search_success: true,
-        },
-        subtype: 'success',
-      }
-      const result = extractSearchResults(input)
-      expect(result.query).toBe('test query')
-      expect(result.results).toHaveLength(2)
-      expect(result.results[0].url).toBe('https://example.com')
+    describe('正常系', () => {
+      it('正常な隔離プロセス出力から検索結果を抽出する', () => {
+        const input = {
+          structured_output: {
+            query: 'test query',
+            results: [
+              { snippet: 'A test page', title: 'Example', url: 'https://example.com' },
+              { snippet: 'Another page', title: 'Example Org', url: 'https://example.org' },
+            ],
+            search_success: true,
+          },
+          subtype: 'success',
+        }
+        const result = extractSearchResults(input)
+        expect(result.query).toBe('test query')
+        expect(result.results).toHaveLength(2)
+        expect(result.results[0].url).toBe('https://example.com')
+      })
     })
 
-    it('subtype が success でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { query: 'q', results: [], search_success: true },
-        subtype: 'error',
-      }
-      expect(() => extractSearchResults(input)).toThrow('隔離プロセスが失敗しました')
+    describe('入力検証', () => {
+      it('入力がオブジェクトでない場合にエラーを投げる', () => {
+        expect(() => extractSearchResults('not an object')).toThrow('JSON オブジェクト')
+      })
+
+      it('入力が null の場合にエラーを投げる', () => {
+        expect(() => extractSearchResults(JSON.parse('null'))).toThrow('JSON オブジェクト')
+      })
     })
 
-    it('structured_output が存在しない場合にエラーを投げる', () => {
-      const input = { subtype: 'success' }
-      expect(() => extractSearchResults(input)).toThrow('structured_output')
+    describe('ラッパー検証', () => {
+      it('subtype が success でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { query: 'q', results: [], search_success: true },
+          subtype: 'error',
+        }
+        expect(() => extractSearchResults(input)).toThrow('隔離プロセスが失敗しました')
+      })
+
+      it('structured_output が存在しない場合にエラーを投げる', () => {
+        const input = { subtype: 'success' }
+        expect(() => extractSearchResults(input)).toThrow('structured_output')
+      })
     })
 
-    it('search_success が false の場合にエラーを投げる', () => {
-      const input = {
-        structured_output: {
-          error_message: 'Rate limited',
-          query: 'q',
-          results: [],
-          search_success: false,
-        },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('Rate limited')
+    describe('search_success 検証', () => {
+      it('search_success が false の場合にエラーを投げる', () => {
+        const input = {
+          structured_output: {
+            error_message: 'Rate limited',
+            query: 'q',
+            results: [],
+            search_success: false,
+          },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('Rate limited')
+      })
+
+      it('search_success が boolean でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { query: 'q', results: [], search_success: 'true' },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow(
+          'search_success が boolean ではありません'
+        )
+      })
+
+      it('search_success が undefined の場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { query: 'q', results: [] },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow(
+          'search_success が boolean ではありません'
+        )
+      })
+
+      it('search_success が false で error_message がない場合に汎用エラーを投げる', () => {
+        const input = {
+          structured_output: { query: 'q', results: [], search_success: false },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('不明なエラー')
+      })
     })
 
-    it('search_success が boolean でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { query: 'q', results: [], search_success: 'true' },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('search_success が boolean ではありません')
-    })
+    describe('内容検証', () => {
+      it('query が文字列でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { query: 42, results: [], search_success: true },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('query が文字列ではありません')
+      })
 
-    it('search_success が undefined の場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { query: 'q', results: [] },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('search_success が boolean ではありません')
-    })
+      it('results が配列でない場合にエラーを投げる', () => {
+        const input = {
+          structured_output: { query: 'q', results: 'not array', search_success: true },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('results が配列ではありません')
+      })
 
-    it('search_success が false で error_message がない場合に汎用エラーを投げる', () => {
-      const input = {
-        structured_output: { query: 'q', results: [], search_success: false },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('不明なエラー')
-    })
+      it('不正な結果アイテムが含まれる場合にエラーを投げる（fail-closed）', () => {
+        const input = {
+          structured_output: {
+            query: 'q',
+            results: [
+              { snippet: 'OK', title: 'Valid', url: 'https://example.com' },
+              { snippet: 'bad', title: 'Invalid', url: 123 },
+            ],
+            search_success: true,
+          },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('results[1] が不正な形式です')
+      })
 
-    it('results が配列でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { query: 'q', results: 'not array', search_success: true },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('results が配列ではありません')
-    })
-
-    it('不正な結果アイテムが含まれる場合にエラーを投げる（fail-closed）', () => {
-      const input = {
-        structured_output: {
-          query: 'q',
-          results: [
-            { url: 'https://example.com', title: 'Valid', snippet: 'OK' },
-            { url: 123, title: 'Invalid', snippet: 'bad' },
-          ],
-          search_success: true,
-        },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('results[1] が不正な形式です')
-    })
-
-    it('文字列が混入した結果アイテムでエラーを投げる', () => {
-      const input = {
-        structured_output: {
-          query: 'q',
-          results: ['not an object'],
-          search_success: true,
-        },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('results[0] が不正な形式です')
-    })
-
-    it('入力がオブジェクトでない場合にエラーを投げる', () => {
-      expect(() => extractSearchResults('not an object')).toThrow('JSON オブジェクト')
-    })
-
-    it('入力が null の場合にエラーを投げる', () => {
-      expect(() => extractSearchResults(null)).toThrow('JSON オブジェクト')
-    })
-
-    it('query が文字列でない場合にエラーを投げる', () => {
-      const input = {
-        structured_output: { query: 42, results: [], search_success: true },
-        subtype: 'success',
-      }
-      expect(() => extractSearchResults(input)).toThrow('query が文字列ではありません')
+      it('文字列が混入した結果アイテムでエラーを投げる', () => {
+        const input = {
+          structured_output: {
+            query: 'q',
+            results: ['not an object'],
+            search_success: true,
+          },
+          subtype: 'success',
+        }
+        expect(() => extractSearchResults(input)).toThrow('results[0] が不正な形式です')
+      })
     })
   })
 
@@ -347,10 +386,11 @@ if (import.meta.vitest) {
       expect(output.aggregate_flags.filtered_unsafe_urls).toBe(0)
     })
 
-    it('javascript: URL を持つ結果を除外する', () => {
+    it('javascript スキームの URL を持つ結果を除外する', () => {
+      const scheme = 'javascript'
       const results = [
         { snippet: 'ok', title: 'Safe', url: 'https://example.com' },
-        { snippet: 'xss', title: 'Evil', url: 'javascript:alert(1)' },
+        { snippet: 'xss', title: 'Evil', url: `${scheme}:alert(1)` },
       ]
       const output = sanitizeSearchResults('query', results)
       expect(output.results).toHaveLength(1)
@@ -388,45 +428,81 @@ if (import.meta.vitest) {
 }
 
 // ---------- CLI ----------
-const entryPath = process.argv[1]
-const isCLI = entryPath
-  ? import.meta.url === `file://${(await import('node:fs')).realpathSync(entryPath)}`
-  : false
-if (isCLI) {
+const isEntryFile = (): boolean => {
+  const [, entryPath] = process.argv
+  if (!entryPath) {
+    return false
+  }
+  return import.meta.url === `file://${realpathSync(entryPath)}`
+}
+
+const parseJson = (raw: string): unknown => {
+  try {
+    return JSON.parse(raw) as unknown
+  } catch {
+    throw new Error('JSON パースに失敗しました')
+  }
+}
+
+const formatThrown = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+  return String(error)
+}
+
+/** stdin を全て読み取り、UTF-8 文字列にトリムして返す */
+const readStdinTrim = async (): Promise<string> => {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) {
     chunks.push(Buffer.from(chunk))
   }
-  const raw = Buffer.concat(chunks).toString('utf8').trim()
+  return Buffer.concat(chunks).toString('utf8').trim()
+}
 
+/** JSON.stringify は replacer に null/undefined を直接渡せない（eslint 規則）ため恒等 replacer を経由する */
+const writeJsonOutput = (value: unknown): void => {
+  const INDENT = 2
+  const json = JSON.stringify(value, (_key, val: unknown) => val, INDENT)
+  process.stdout.write(`${json}\n`)
+}
+
+/** stdin から JSON を読み、隔離プロセス出力ラッパーを検証して検索結果を取り出す */
+const readSearchEnvelope = async (): Promise<{
+  query: string
+  results: { url: string; title: string; snippet: string }[]
+}> => {
+  const raw = await readStdinTrim()
   if (!raw) {
-    process.stderr.write('ERROR: stdin が空です\n')
-    process.exit(1)
+    throw new Error('stdin が空です')
   }
+  return extractSearchResults(parseJson(raw))
+}
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    process.stderr.write('ERROR: JSON パースに失敗しました\n')
-    process.exit(1)
+/** CLI 引数のクエリを取り出して長さ上限を検証する。未指定なら undefined を返す */
+const getValidatedCliQuery = (): string | undefined => {
+  const [cliQuery] = process.argv.slice(2)
+  if (cliQuery && cliQuery.length > 1000) {
+    throw new Error(`クエリが長すぎます (${cliQuery.length} 文字, 上限 1000)`)
   }
+  return cliQuery
+}
 
+const runCli = async (): Promise<void> => {
+  const { query, results } = await readSearchEnvelope()
+  // CLI引数のクエリは出力の query フィールドをユーザーの意図と一致させるためのもの
+  // 注意: 隔離プロセスが実際に実行した検索クエリを検証する手段はない（既知の限界）
+  const cliQuery = getValidatedCliQuery()
+  const effectiveQuery = cliQuery || query
+  const output = sanitizeSearchResults(effectiveQuery, results)
+  writeJsonOutput(output)
+}
+
+if (isEntryFile()) {
   try {
-    const { query, results } = extractSearchResults(parsed)
-    // CLI引数のクエリは出力の query フィールドをユーザーの意図と一致させるためのもの
-    // 注意: 隔離プロセスが実際に実行した検索クエリを検証する手段はない（既知の限界）
-    const cliQuery = process.argv[2]
-    if (cliQuery && cliQuery.length > 1000) {
-      throw new Error(`クエリが長すぎます (${cliQuery.length} 文字, 上限 1000)`)
-    }
-    const effectiveQuery = cliQuery || query
-
-    const output = sanitizeSearchResults(effectiveQuery, results)
-    const INDENT = 2
-    process.stdout.write(`${JSON.stringify(output, null, INDENT)}\n`)
+    await runCli()
   } catch (error) {
-    process.stderr.write(`ERROR: ${error instanceof Error ? error.message : String(error)}\n`)
-    process.exit(1)
+    process.stderr.write(`ERROR: ${formatThrown(error)}\n`)
+    process.exitCode = 1
   }
 }
