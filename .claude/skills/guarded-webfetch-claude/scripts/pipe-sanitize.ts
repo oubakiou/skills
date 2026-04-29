@@ -44,16 +44,44 @@ export const validateCliUrl = (url: string): void => {
   }
 }
 
+/** ホスト名から先頭の `www.` プレフィクスを除去する */
+const stripWwwPrefix = (hostname: string): string => hostname.replace(/^www\./i, '')
+
 /**
- * 要求 URL と隔離プロセスが返した URL のオリジン（scheme + host + port）を比較する。
- * 不一致の場合はエラーを投げる（fail-closed: 隔離プロセスが別のサイトを fetch した可能性）。
- * 同一オリジン内のパス差異（リダイレクト等）は許容する。
+ * 要求 URL → 取得 URL の遷移が許容範囲かを判定する。
+ *
+ * 許容ケース（実運用で頻発する正規リダイレクト）:
+ * - 完全一致
+ * - HTTPS 昇格: http → https（同一ホスト・同一ポート）
+ * - www. プレフィクスの有無の差: example.com ↔ www.example.com（同一スキーム・同一ポート）
+ * - 上記の組み合わせ
+ *
+ * 拒否ケース（fail-closed の対象）:
+ * - HTTPS から HTTP への降格
+ * - クロスオリジンへの遷移（CDN/別ホストなど。eTLD+1 判定は public suffix list が必要なため対応しない）
+ * - ポート変更
+ *
+ * ホスト名の比較は WHATWG URL の `URL.hostname` が IDN を Punycode に変換し
+ * ASCII lowercase に正規化する仕様に依拠している（独自に NFKC 正規化や lowercasing は行わない）。
+ */
+const isAllowedOriginTransition = (requested: URL, fetched: URL): boolean => {
+  const schemeOk =
+    requested.protocol === fetched.protocol ||
+    (requested.protocol === 'http:' && fetched.protocol === 'https:')
+  const hostOk = stripWwwPrefix(requested.hostname) === stripWwwPrefix(fetched.hostname)
+  const portOk = requested.port === fetched.port
+  return schemeOk && hostOk && portOk
+}
+
+/**
+ * 要求 URL と隔離プロセスが返した URL の遷移が許容範囲か検証する。
+ * 不許可の場合はエラーを投げる（fail-closed: 隔離プロセスが別サイトを fetch した可能性）。
  */
 export const validateUrlOriginMatch = (requestedUrl: string, fetchedUrl: string): void => {
   const { requested, fetched } = parseUrlPair(requestedUrl, fetchedUrl)
-  if (requested.origin !== fetched.origin) {
+  if (!isAllowedOriginTransition(requested, fetched)) {
     throw new Error(
-      `隔離プロセスが異なるオリジンの URL を返しました (requested: ${requested.origin}, fetched: ${fetched.origin}). コンテンツの出所が要求と一致しないため処理を中止します`
+      `隔離プロセスが許容範囲外のオリジンへ遷移しました (requested: ${requested.origin}, fetched: ${fetched.origin}). コンテンツの出所が要求と一致しないため処理を中止します`
     )
   }
 }
@@ -272,40 +300,80 @@ if (import.meta.vitest) {
   })
 
   describe('validateUrlOriginMatch', () => {
-    it('同一オリジンの URL を許可する', () => {
-      expect(() =>
-        validateUrlOriginMatch('https://example.com', 'https://example.com')
-      ).not.toThrow()
+    describe('許可ケース', () => {
+      it('同一オリジンの URL を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://example.com')
+        ).not.toThrow()
+      })
+
+      it('同一オリジンでパスが異なる URL を許可する（リダイレクト等）', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com/page', 'https://example.com/redirected')
+        ).not.toThrow()
+      })
+
+      it('HTTP → HTTPS の昇格を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('http://example.com/page', 'https://example.com/page')
+        ).not.toThrow()
+      })
+
+      it('www. プレフィクスの追加を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://www.example.com')
+        ).not.toThrow()
+      })
+
+      it('www. プレフィクスの除去を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://www.example.com', 'https://example.com')
+        ).not.toThrow()
+      })
+
+      it('HTTPS 昇格と www. 追加の組み合わせを許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('http://example.com', 'https://www.example.com')
+        ).not.toThrow()
+      })
     })
 
-    it('同一オリジンでパスが異なる URL を許可する（リダイレクト等）', () => {
-      expect(() =>
-        validateUrlOriginMatch('https://example.com/page', 'https://example.com/redirected')
-      ).not.toThrow()
-    })
+    describe('拒否ケース（fail-closed）', () => {
+      it('異なるオリジンの URL を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://malicious.com')
+        ).toThrow('許容範囲外のオリジン')
+      })
 
-    it('異なるオリジンの URL を拒否する', () => {
-      expect(() => validateUrlOriginMatch('https://example.com', 'https://malicious.com')).toThrow(
-        '異なるオリジン'
-      )
-    })
+      it('HTTPS から HTTP への降格を拒否する', () => {
+        expect(() => validateUrlOriginMatch('https://example.com', 'http://example.com')).toThrow(
+          '許容範囲外のオリジン'
+        )
+      })
 
-    it('スキームが異なる URL を拒否する', () => {
-      expect(() => validateUrlOriginMatch('https://example.com', 'http://example.com')).toThrow(
-        '異なるオリジン'
-      )
-    })
+      it('CDN 等のサブドメイン変更を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://cdn.example.com')
+        ).toThrow('許容範囲外のオリジン')
+      })
 
-    it('ポートが異なる URL を拒否する', () => {
-      expect(() =>
-        validateUrlOriginMatch('https://example.com', 'https://example.com:8080')
-      ).toThrow('異なるオリジン')
-    })
+      it('ポートが異なる URL を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://example.com:8080')
+        ).toThrow('許容範囲外のオリジン')
+      })
 
-    it('パース不能な URL でエラーを投げる', () => {
-      expect(() => validateUrlOriginMatch('not-a-url', 'https://example.com')).toThrow(
-        'オリジン比較に失敗'
-      )
+      it('別の TLD への遷移を拒否する', () => {
+        expect(() => validateUrlOriginMatch('https://example.com', 'https://example.org')).toThrow(
+          '許容範囲外のオリジン'
+        )
+      })
+
+      it('パース不能な URL でエラーを投げる', () => {
+        expect(() => validateUrlOriginMatch('not-a-url', 'https://example.com')).toThrow(
+          'オリジン比較に失敗'
+        )
+      })
     })
   })
 
@@ -325,7 +393,7 @@ if (import.meta.vitest) {
       expect(result.fetched_url).toBe('https://example.com')
       expect(result.text).toContain('[FILTERED:chat_template]')
       expect(result.text).not.toContain('<|im_start|>')
-      expect(result.flags.suspicious_patterns.length).toBeGreaterThan(0)
+      expect(result.flags.suspicious_patterns.chat_template).toBeGreaterThanOrEqual(1)
     })
 
     it('隔離プロセスが異なるオリジンの URL を返した場合にエラーを投げる', () => {
@@ -339,7 +407,7 @@ if (import.meta.vitest) {
       }
       const { url: fetchedUrl } = extractRawText(input)
       const cliUrl = 'https://example.com'
-      expect(() => validateUrlOriginMatch(cliUrl, fetchedUrl)).toThrow('異なるオリジン')
+      expect(() => validateUrlOriginMatch(cliUrl, fetchedUrl)).toThrow('許容範囲外のオリジン')
     })
 
     it('同一オリジン内のリダイレクトを許容し両URLを保持する', () => {
@@ -409,10 +477,9 @@ const readStdinTrim = async (): Promise<string> => {
   return Buffer.concat(chunks).toString('utf8').trim()
 }
 
-/** JSON.stringify は replacer に null/undefined を直接渡せない（eslint 規則）ため恒等 replacer を経由する */
 const writeJsonOutput = (value: unknown): void => {
   const INDENT = 2
-  const json = JSON.stringify(value, (_key, val: unknown) => val, INDENT)
+  const json = JSON.stringify(value, null, INDENT)
   process.stdout.write(`${json}\n`)
 }
 
@@ -426,15 +493,17 @@ const readEnvelope = async (): Promise<{ url: string; rawText: string }> => {
 }
 
 const runCli = async (): Promise<void> => {
-  const { url: fetchedUrl, rawText } = await readEnvelope()
   const [cliUrl] = process.argv.slice(2)
-  if (cliUrl) {
-    validateCliUrl(cliUrl)
-    // オリジン不一致は fail-closed（隔離プロセスが別サイトを fetch した可能性）
-    validateUrlOriginMatch(cliUrl, fetchedUrl)
+  if (!cliUrl) {
+    throw new Error(
+      'CLI 引数として要求 URL が必須です（オリジン検証スキップを防ぐための fail-closed 設計）'
+    )
   }
-  const requestedUrl = cliUrl || fetchedUrl
-  const result = sanitize(requestedUrl, fetchedUrl, rawText)
+  validateCliUrl(cliUrl)
+  const { url: fetchedUrl, rawText } = await readEnvelope()
+  // オリジン不一致は fail-closed（隔離プロセスが別サイトを fetch した可能性）
+  validateUrlOriginMatch(cliUrl, fetchedUrl)
+  const result = sanitize(cliUrl, fetchedUrl, rawText)
   writeJsonOutput(result)
 }
 

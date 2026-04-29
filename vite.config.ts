@@ -20,6 +20,7 @@ export default {
       'number-literal-case': 'off',
       'oxc/no-async-await': 'off',
       'oxc/no-rest-spread-properties': 'off',
+      'unicorn/no-null': 'off',
     },
   },
   test: {

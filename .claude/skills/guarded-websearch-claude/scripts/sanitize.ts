@@ -9,4 +9,7 @@
  * 詳細は references/design-plan.md セクション 2 を参照。
  */
 export { sanitize } from '../../guarded-webfetch-claude/scripts/sanitize.ts'
-export type { SanitizeFlags } from '../../guarded-webfetch-claude/scripts/sanitize.ts'
+export type {
+  SanitizeFlags,
+  SuspiciousPatternCounts,
+} from '../../guarded-webfetch-claude/scripts/sanitize.ts'
