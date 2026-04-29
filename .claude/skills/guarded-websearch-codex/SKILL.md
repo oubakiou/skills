@@ -64,10 +64,12 @@ main Claude agent
 
 `pipe-sanitize-search-codex.ts` の出力 JSON に含まれる `aggregate_flags` を見て判定する。
 
-- `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` が `0`: 安全
-- `had_invisible_chars` が `true` で `suspicious_patterns` が空、`filtered_unsafe_urls` が `0`: 注意
+- `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` / `dropped_results` が `0`、`query_mismatch` が `false`: 安全
+- `had_invisible_chars` が `true` で `suspicious_patterns` が空、その他が 0 / `false`: 注意
+- `dropped_results` が 1 件以上: 注意（Codex 子が上限を超えて返したため先頭 10 件のみで応答、超過分は破棄）
 - `suspicious_patterns` が 1 件以上: 要確認
 - `filtered_unsafe_urls` が 1 件以上: 要確認
+- `query_mismatch` が `true`: 要確認（Codex 子が CLI 引数と異なるクエリを申告。`reported_query` を提示してユーザー確認）
 
 要確認時は、検出された title・snippet を伏せた上で概要だけを示す。
 

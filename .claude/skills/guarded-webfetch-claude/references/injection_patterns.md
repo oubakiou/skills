@@ -32,19 +32,22 @@
 
 ## チャットテンプレート
 
-| パターン                                                   | 説明                             | 追加日 |
-| ---------------------------------------------------------- | -------------------------------- | ------ |
-| `<\|im_start\|>`, `<\|im_end\|>`                           | ChatML テンプレートマーカー      | 初期   |
-| `<\|endoftext\|>`                                          | GPT 系 end-of-text トークン      | 初期   |
-| `<s>`, `</s>`                                              | LLM BOS/EOS トークン（Llama 等） | 初期   |
-| `<system>`, `<assistant>`, `<user>`, `<untrusted_content>` | ロールタグ擬装（開閉タグ両方）   | 初期   |
-| `[INST]`, `[/INST]`                                        | Llama 2 instruction テンプレート | 初期   |
+| パターン                                                                 | 説明                                                  | 追加日     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------- | ---------- |
+| `<\|[a-z0-9_]+\|>` (包括)                                                | ChatML / OpenAI Harmony 系の `<\|...\|>` sigil 全般   | 2026-04-29 |
+| ↳ うち `<\|im_start\|>`, `<\|im_end\|>`, `<\|endoftext\|>`               | ChatML / GPT 系                                       | 初期       |
+| ↳ うち `<\|start\|>`, `<\|end\|>`, `<\|message\|>`, `<\|channel\|>` ほか | OpenAI Harmony format（Codex/ChatGPT 系の特権ロール） | 2026-04-29 |
+| `<s>`, `</s>`                                                            | LLM BOS/EOS トークン（Llama 等）                      | 初期       |
+| `<system>`, `<assistant>`, `<user>`, `<untrusted_content>`               | ロールタグ擬装（開閉タグ両方）                        | 初期       |
+| `<developer>`, `</developer>`                                            | OpenAI/Codex 系の特権ロールタグ                       | 2026-04-29 |
+| `[INST]`, `[/INST]`                                                      | Llama 2 instruction テンプレート                      | 初期       |
 
 ## ロール宣言
 
-| パターン                                 | 説明                          | 追加日 |
-| ---------------------------------------- | ----------------------------- | ------ |
-| 行頭の `human:`, `assistant:`, `system:` | Claude / ChatGPT 風ロール宣言 | 初期   |
+| パターン                                 | 説明                            | 追加日     |
+| ---------------------------------------- | ------------------------------- | ---------- |
+| 行頭の `human:`, `assistant:`, `system:` | Claude / ChatGPT 風ロール宣言   | 初期       |
+| 行頭の `developer:`                      | OpenAI/Codex 系の特権ロール宣言 | 2026-04-29 |
 
 ## 指示上書き
 
@@ -58,3 +61,4 @@
 ## 更新履歴
 
 - 初期: sanitize.ts の初期パターンを記録
+- 2026-04-29: OpenAI Harmony format (`<|start|>` / `<|end|>` / `<|message|>` / `<|channel|>` 等) と `developer` 特権ロール（chat*template / role_declaration 両層）に対応。`<|...|>` 系は `<\|[a-z0-9*]+\|>` の包括パターンに統合した
