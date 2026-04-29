@@ -481,10 +481,9 @@ const readStdinTrim = async (): Promise<string> => {
   return Buffer.concat(chunks).toString('utf8').trim()
 }
 
-/** JSON.stringify は replacer に null/undefined を直接渡せない（eslint 規則）ため恒等 replacer を経由する */
 const writeJsonOutput = (value: unknown): void => {
   const INDENT = 2
-  const json = JSON.stringify(value, (_key, val: unknown) => val, INDENT)
+  const json = JSON.stringify(value, null, INDENT)
   process.stdout.write(`${json}\n`)
 }
 

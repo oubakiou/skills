@@ -55,13 +55,13 @@ main agent
 
 ## 2. guarded-webfetch-claude との関係
 
-### 分離の理由
+### スキルを分ける理由
 
-guarded-webfetch-claude は元々 WebSearch も扱っていたが、以下の理由で WebSearch 専用スキルとして分離する:
+WebFetch（個別 URL のコンテンツ取得）と WebSearch（検索クエリの実行）は同じ「外部コンテンツをコンテキストに取り込む」目的を持つが、以下の点で構造が異なるため別スキルとして実装する:
 
-1. **隔離プロセスの構成が異なる**: WebFetch は `--tools "WebFetch"` で単一 URL のコンテンツを取得するが、WebSearch は `--tools "WebSearch"` で検索クエリを実行し複数の結果を返す。ツール制限・settings・出力スキーマがすべて異なる
-2. **出力構造が異なる**: WebFetch は単一の raw_text を返すが、WebSearch は複数の title/snippet/url の配列を返す。パイプスクリプトの処理ロジックが異なる
-3. **トリガー条件の明確化**: 「URL を指定してコンテンツを取得する」と「検索クエリを実行する」は意味的に異なる操作であり、トリガー条件を分離することで発火精度が向上する
+1. **隔離プロセスの構成が異なる**: WebFetch は `--tools "WebFetch"` で単一 URL のコンテンツを取得するが、WebSearch は `--tools "WebSearch"` で検索クエリを実行し複数の結果を返す。ツール制限・settings・出力スキーマがすべて異なるため、単一スキル内で両ツールを切り替える設計よりも、それぞれの責務に専念したスキルとして分けた方が実装と監査が単純になる
+2. **出力構造が異なる**: WebFetch は単一の raw_text を返すが、WebSearch は複数の title/snippet/url の配列を返す。サニタイズ後の判定軸（webfetch は単一 flags、websearch は個別 + aggregate の二層）も異なるため、パイプスクリプトのロジックを共有するメリットが乏しい
+3. **トリガー条件の明確化**: 「URL を指定してコンテンツを取得する」と「検索クエリを実行する」は意味的に異なる操作であり、SKILL.md の description でトリガー条件を分離することで発火精度が向上する。ユーザーが URL を貼った場合と「○○について調べて」と言った場合で、別々の skill description が独立にマッチする方が undertrigger も overtrigger も避けやすい
 
 ### コード共有
 
@@ -222,21 +222,14 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 
 `suspicious_patterns` はカテゴリ別件数の Record（`{ chat_template: 3, ... }`）。攻撃文言そのものは main agent には渡らないため、判定はカテゴリ名と件数のみで行う。「空」とはこの Record にキーが存在しない (`Object.keys(suspicious_patterns).length === 0`) 状態を指す。
 
-以下のいずれかに該当する場合、ユーザーに確認を取るまで actionable な出力（URL / コマンド / コード）を生成しない:
+**判定の評価順序**: 以下の表は上から順に評価し、最初にマッチした行の判定を採用する（`aggregate_flags` を見る）。`suspicious_patterns` 非空と `filtered_unsafe_urls` 1 件以上はいずれも「要確認」だが、ユーザー報告文の重点（インジェクション検出 vs URL スキーム不正）が異なるため別行に分けてある。`had_invisible_chars` 単独の「注意」判定は他のフラグが立っていないときにのみ意味を持つため、複合条件として独立行を持たせない。
 
-- `aggregate_flags.suspicious_patterns` が非空（1 カテゴリ以上）
-- `aggregate_flags.filtered_unsafe_urls` が 1 件以上
-- `aggregate_flags.had_invisible_chars` が `true` かつ `aggregate_flags.suspicious_patterns` が非空
-
-判定基準（`aggregate_flags` を見る）:
-
-| 条件                                                                                        | 判定   | main agent の振る舞い                                                                       |
-| ------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
-| `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` が `0` | 安全   | そのまま応答を生成                                                                          |
-| `had_invisible_chars` が `true`、`suspicious_patterns` が空、`filtered_unsafe_urls` が `0`  | 注意   | 応答に「不可視文字の除去または Unicode 互換正規化によりテキストが変形された」旨の通知を付与 |
-| `suspicious_patterns` が 1 カテゴリ以上                                                     | 要確認 | ユーザー確認まで actionable な出力を生成しない                                              |
-| `filtered_unsafe_urls` が 1 件以上                                                          | 要確認 | 不正なスキームの URL が検出された旨をユーザーに報告。除外件数を通知                         |
-| `had_invisible_chars` が `true` かつ `suspicious_patterns` が非空                           | 要確認 | 同上                                                                                        |
+| 条件                                                        | 判定   | main agent の振る舞い                                                                       |
+| ----------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------- |
+| `suspicious_patterns` が 1 カテゴリ以上                     | 要確認 | ユーザー確認まで actionable な出力（URL / コマンド / コード）を生成しない                   |
+| `filtered_unsafe_urls` が 1 件以上                          | 要確認 | 不正なスキームの URL が検出された旨をユーザーに報告。除外件数を通知                         |
+| `had_invisible_chars` が `true`、`suspicious_patterns` が空 | 注意   | 応答に「不可視文字の除去または Unicode 互換正規化によりテキストが変形された」旨の通知を付与 |
+| 上記いずれにも該当しない                                    | 安全   | そのまま応答を生成                                                                          |
 
 「要確認」判定時の表示では、**個別結果ごとに `results[i].title_flags` / `results[i].snippet_flags` を確認し**、`suspicious_patterns` が非空、または `had_invisible_chars` が `true` の field（title もしくは snippet）を `[redacted]` に置換して伏せる。フラグが立っていない結果はそのまま表示する。ユーザーが確認後に明示的に要求した場合のみ、伏せた情報を開示する。
 
@@ -260,6 +253,17 @@ guarded-webfetch-claude の sanitize.ts を共有使用する。検索結果の�
 - 検索結果ごとに個別に flags（`title_flags`, `snippet_flags`）が記録されるため、どの結果のどの field に問題があるかを特定できる
 - `aggregate_flags` で全結果のフラグを集約し、安全性判定の入力とする
 - URL スキーム検証で除外された件数は `aggregate_flags.filtered_unsafe_urls` に記録される（個別の flags ではなく集約のみに記録）
+
+### `truncated` フラグを `aggregate_flags` に集約しない理由
+
+`SanitizeFlags` 型（webfetch と共有）は `truncated: boolean` を持つが、本スキルの `aggregate_flags` には集約していない。これは以下の二段の制約により、検索結果の title/snippet で `truncated: true` が立つ経路が実質的に存在しないため:
+
+1. **JSON Schema による上限**: `search-output-schema.json` で `title.maxLength: 500` / `snippet.maxLength: 2000` を強制している。隔離プロセスのモデルがこれを超える文字列を返した場合、`claude -p --json-schema` の検証で `subtype` が失敗系に分岐し、ラッパーレベルで弾かれる
+2. **pipe-sanitize-search.ts のラッパー検証**: 上記で `subtype !== 'success'` となった出力は `validateSearchEnvelope` がエラーを投げ、`runCli` が exit code 1 で fail-closed する。サニタイザの `truncated` 判定（`MAX_CHARS = 50_000`）に到達する前に処理が止まる
+
+つまり title/snippet が `MAX_CHARS` (50,000) に達する経路は、`maxLength: 500/2000` のスキーマ強制を破壊する隔離プロセス側の重大な不具合がない限り発生せず、その場合は `aggregate_flags.truncated` ではなく exit code 1 として表面化する。`title_flags` / `snippet_flags` の `truncated` フィールドはサニタイザの構造上残っているが、`aggregate_flags` 側に独立した判定軸として持たせると「到達不能なケースのために main agent に追加判定を強いる」形になるため、意図的に集約から外している。
+
+将来 schema の `maxLength` を緩める変更を行う場合は、本節の前提が崩れるため `aggregate_flags.truncated` の追加とそれに対応する SKILL.md ステップ 3 の判定行追加を併せて検討すること。
 
 ## 9. 隔離プロセス仕様
 

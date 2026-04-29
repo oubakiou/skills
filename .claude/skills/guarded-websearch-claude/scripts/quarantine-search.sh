@@ -40,8 +40,8 @@ if [ "${#QUERY}" -gt 1000 ]; then
   exit 2
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-skill_dir="$(dirname "$SCRIPT_DIR")"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+skill_dir="$(dirname "$script_dir")"
 
 # 隔離プロセスの cwd を切り替える理由は 2 つ:
 # 1. claude -p の auto-discovery (.claude/, hooks 等) を空ディレクトリで起動して防ぐ
