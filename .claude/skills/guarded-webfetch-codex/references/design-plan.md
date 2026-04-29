@@ -117,7 +117,7 @@ guarded-webfetch-codex/
 ```
 
 - `sanitize.ts` は `guarded-webfetch-claude` の実装を re-export して共有する
-- 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-codex/` を使う
+- 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
 ## 6. 実行フロー
 
@@ -138,10 +138,11 @@ guarded-webfetch-codex/
 `quarantine-fetch-codex.sh` は以下を行う。
 
 1. Node.js と `codex` CLI の存在確認
-2. `.temp/guarded-webfetch-codex/` を隔離用 cwd として作成
-3. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
-4. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ、`--sandbox workspace-write --add-dir "$QUARANTINE_CWD"` にフォールバック
-5. Codex の JSONL 出力を `pipe-sanitize-codex.ts` にパイプ
+2. URL の入口検証 (`http://` / `https://` プレフィクス、バッククォート / `$()`、制御文字) を実施
+3. `.temp/guarded-webfetch-codex/run-XXXXXXXX/` を `mktemp -d` で隔離用 cwd として作成し、`trap EXIT` で削除する
+4. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
+5. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ、`--sandbox workspace-write --add-dir "$QUARANTINE_CWD"` にフォールバック
+6. Codex の JSONL 出力を `pipe-sanitize-codex.ts` にパイプ
 
 Codex 子に与えるプロンプトでは次を要求する。
 

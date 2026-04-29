@@ -109,7 +109,7 @@ guarded-websearch-codex/
 ```
 
 - `sanitize.ts` は `guarded-webfetch-codex` 経由で既存実装を共有する
-- 一時ファイルと隔離用 cwd は `.temp/guarded-websearch-codex/` を使う
+- 一時ファイルと隔離用 cwd は `.temp/guarded-websearch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
 ## 7. 実行フロー
 
@@ -129,10 +129,11 @@ guarded-websearch-codex/
 `quarantine-search-codex.sh` は以下を行う。
 
 1. Node.js と `codex` CLI の存在確認
-2. `.temp/guarded-websearch-codex/` を隔離用 cwd として作成
-3. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
-4. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ `workspace-write` にフォールバック
-5. JSONL 出力を `pipe-sanitize-search-codex.ts` にパイプ
+2. クエリの入口検証 (バッククォート / `$()`、制御文字、1000 字上限) を実施
+3. `.temp/guarded-websearch-codex/run-XXXXXXXX/` を `mktemp -d` で隔離用 cwd として作成し、`trap EXIT` で削除する
+4. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
+5. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ `workspace-write` にフォールバック
+6. JSONL 出力を `pipe-sanitize-search-codex.ts` にパイプ
 
 Codex 子への要求:
 

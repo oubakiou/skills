@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 NODE_CHECK=$(node -p "const [M,m]=process.versions.node.split('.').map(Number); M>23||(M===23&&m>=6) ? 'OK' : 'FAIL'" 2>/dev/null || echo 'FAIL')
 if [ "$NODE_CHECK" != "OK" ]; then
@@ -12,16 +12,47 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 3
 fi
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
   echo "Usage: $0 <URL>" >&2
   exit 2
 fi
 
 URL="$1"
+
+# 入口で URL を検証して、不正な URL のまま高コストな codex 子プロセスを起動するのを防ぐ
+# (pipe-sanitize-codex.ts 側にも同等の検証はあるが、API コスト発生前に弾くことが重要)
+case "$URL" in
+  http://*|https://*) ;;
+  *)
+    echo "ERROR: URL must start with http:// or https:// (got: ${URL})" >&2
+    exit 2
+    ;;
+esac
+
+# バッククォート / $() はヒアドキュメント (sigil 無し) でシェル展開されうるため拒否
+# シングルクォートは URL の path/query で合法かつシェル展開の対象でもないため許容する
+case "$URL" in
+  *'`'*|*'$('*)
+    echo "ERROR: URL must not contain backtick or \$()" >&2
+    exit 2
+    ;;
+esac
+
+# 制御文字 (改行・タブを含む) はプロンプト整形を崩す
+if [[ "$URL" =~ [[:cntrl:]] ]]; then
+  echo "ERROR: URL must not contain control characters" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
-QUARANTINE_CWD="$PWD/.temp/guarded-webfetch-codex"
-mkdir -p "$QUARANTINE_CWD"
+
+# 隔離プロセスの cwd を実行ごとに mktemp で run-* サブディレクトリに切り、
+# trap EXIT で削除する。並列起動や前回実行の残留ファイル混入を避けるため。
+QUARANTINE_BASE="$PWD/.temp/guarded-webfetch-codex"
+mkdir -p "$QUARANTINE_BASE"
+QUARANTINE_CWD="$(mktemp -d "$QUARANTINE_BASE/run-XXXXXXXX")"
+trap 'rm -rf "$QUARANTINE_CWD"' EXIT
 
 FETCH_SCHEMA="$SKILL_DIR/references/fetch-output-schema.json"
 PIPE_SANITIZER="$SKILL_DIR/scripts/pipe-sanitize-codex.ts"

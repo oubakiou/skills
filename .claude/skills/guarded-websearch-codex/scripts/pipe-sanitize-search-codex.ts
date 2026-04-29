@@ -3,7 +3,7 @@
  * @example codex --search exec --json ... | node pipe-sanitize-search-codex.ts "<query>"
  */
 
-import { type SanitizeFlags, sanitize } from './sanitize.ts'
+import { type SanitizeFlags, type SuspiciousPatternCounts, sanitize } from './sanitize.ts'
 
 interface SearchResult {
   snippet: string
@@ -30,7 +30,8 @@ interface SanitizedSearchOutput {
   aggregate_flags: {
     filtered_unsafe_urls: number
     had_invisible_chars: boolean
-    suspicious_patterns: string[]
+    /** カテゴリ別の累積件数。各 SanitizeFlags.suspicious_patterns を加算したもの */
+    suspicious_patterns: SuspiciousPatternCounts
   }
   meta: {
     result_count: number
@@ -38,6 +39,16 @@ interface SanitizedSearchOutput {
   }
   query: string
   results: SanitizedSearchResult[]
+}
+
+/** target に source の各カテゴリ件数を加算する（破壊的更新） */
+const mergeSuspiciousCounts = (
+  target: SuspiciousPatternCounts,
+  source: SuspiciousPatternCounts
+): void => {
+  for (const [category, count] of Object.entries(source)) {
+    target[category] = (target[category] ?? 0) + count
+  }
 }
 
 interface AgentMessageEvent {
@@ -183,7 +194,7 @@ export const extractSearchResults = (jsonl: string): CodexSearchOutput => {
 
 const sanitizeSingleResult = (
   item: SearchResult
-): { result: SanitizedSearchResult; suspicious: string[]; invisible: boolean } => {
+): { result: SanitizedSearchResult; invisible: boolean } => {
   const titleDoc = sanitize(item.url, item.url, item.title)
   const snippetDoc = sanitize(item.url, item.url, item.snippet)
   return {
@@ -195,7 +206,6 @@ const sanitizeSingleResult = (
       title_flags: titleDoc.flags,
       url: item.url,
     },
-    suspicious: [...titleDoc.flags.suspicious_patterns, ...snippetDoc.flags.suspicious_patterns],
   }
 }
 
@@ -206,7 +216,11 @@ export const sanitizeSearchResults = (
   const safeResults = results.filter((item) => isWebUrl(item.url))
   const filteredUnsafeUrls = results.length - safeResults.length
   const sanitized = safeResults.map((item) => sanitizeSingleResult(item))
-  const suspiciousPatterns = sanitized.flatMap((entry) => entry.suspicious)
+  const suspiciousPatterns: SuspiciousPatternCounts = {}
+  for (const entry of sanitized) {
+    mergeSuspiciousCounts(suspiciousPatterns, entry.result.title_flags.suspicious_patterns)
+    mergeSuspiciousCounts(suspiciousPatterns, entry.result.snippet_flags.suspicious_patterns)
+  }
   const hadInvisibleChars = sanitized.some((entry) => entry.invisible)
   return {
     aggregate_flags: {
@@ -242,6 +256,9 @@ const main = async (): Promise<void> => {
   const [query] = process.argv.slice(2)
   if (typeof query !== 'string' || query.length === 0) {
     throw new Error('Usage: pipe-sanitize-search-codex.ts <QUERY>')
+  }
+  if (query.length > 1000) {
+    throw new Error(`クエリが長すぎます (${query.length} 文字, 上限 1000)`)
   }
   const input = await readStdin()
   const output = extractSearchResults(input)

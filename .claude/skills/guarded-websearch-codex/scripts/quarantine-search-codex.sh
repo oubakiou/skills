@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eu
+set -euo pipefail
 
 NODE_CHECK=$(node -p "const [M,m]=process.versions.node.split('.').map(Number); M>23||(M===23&&m>=6) ? 'OK' : 'FAIL'" 2>/dev/null || echo 'FAIL')
 if [ "$NODE_CHECK" != "OK" ]; then
@@ -12,16 +12,48 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 3
 fi
 
-if [ $# -lt 1 ]; then
+if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
   echo "Usage: $0 <QUERY>" >&2
   exit 2
 fi
 
 QUERY="$1"
+
+# 入口でクエリを検証して、不正なクエリのまま高コストな codex 子プロセスを起動するのを防ぐ
+# (pipe-sanitize-search-codex.ts 側にも同等の検証はあるが、API コスト発生前に弾くことが重要)
+
+# バッククォート / $() はヒアドキュメント (sigil 無し) でシェル展開されうるため拒否
+# bash 仕様上、変数値の中身が再評価されることはないが、プロンプト整形の崩れや
+# 将来の実装変更で injection 経路になる余地を一律塞ぐため fail-closed とする
+case "$QUERY" in
+  *'`'*|*'$('*)
+    echo "ERROR: QUERY must not contain backtick or \$()" >&2
+    exit 2
+    ;;
+esac
+
+# 制御文字 (改行・タブを含む) はプロンプト整形を崩す
+if [[ "$QUERY" =~ [[:cntrl:]] ]]; then
+  echo "ERROR: QUERY must not contain control characters" >&2
+  exit 2
+fi
+
+# 長大クエリで codex 子を起動して API コストを消費する経路を塞ぐ。
+# pipe-sanitize-search-codex.ts 側の検証 (1000 字) と同じ上限を bash 側にも置く
+if [ "${#QUERY}" -gt 1000 ]; then
+  echo "ERROR: QUERY too long (${#QUERY} chars, max 1000)" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(dirname "$SCRIPT_DIR")"
-QUARANTINE_CWD="$PWD/.temp/guarded-websearch-codex"
-mkdir -p "$QUARANTINE_CWD"
+
+# 隔離プロセスの cwd を実行ごとに mktemp で run-* サブディレクトリに切り、
+# trap EXIT で削除する。並列起動や前回実行の残留ファイル混入を避けるため。
+QUARANTINE_BASE="$PWD/.temp/guarded-websearch-codex"
+mkdir -p "$QUARANTINE_BASE"
+QUARANTINE_CWD="$(mktemp -d "$QUARANTINE_BASE/run-XXXXXXXX")"
+trap 'rm -rf "$QUARANTINE_CWD"' EXIT
 
 SEARCH_SCHEMA="$SKILL_DIR/references/search-output-schema.json"
 PIPE_SANITIZER="$SKILL_DIR/scripts/pipe-sanitize-search-codex.ts"
