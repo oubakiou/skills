@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NODE_CHECK=$(node -p "const [M,m]=process.versions.node.split('.').map(Number); M>23||(M===23&&m>=6) ? 'OK' : 'FAIL'" 2>/dev/null || echo 'FAIL')
-if [ "$NODE_CHECK" != "OK" ]; then
-  echo "ERROR: Node.js 23.6+ が必要です。'nvm install --lts' 等で新しいバージョンをインストールしてから再度お試しください。" >&2
-  exit 3
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Node.js のバージョンチェックは check-node-version.sh に集約。
+# bash サブプロセス呼び出しで exit 3 を伝播させ、quarantine 側の前提条件不足判定と一本化する。
+"$SCRIPT_DIR/check-node-version.sh" >/dev/null
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: codex CLI が見つかりません。" >&2
@@ -43,9 +44,6 @@ if [[ "$URL" =~ [[:cntrl:]] ]]; then
   echo "ERROR: URL must not contain control characters" >&2
   exit 2
 fi
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
 # 隔離プロセスの cwd を実行ごとに mktemp で run-* サブディレクトリに切り、
 # trap EXIT で削除する。並列起動や前回実行の残留ファイル混入を避けるため。

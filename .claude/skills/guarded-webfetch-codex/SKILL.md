@@ -56,12 +56,15 @@ main Claude agent
 ### 3. 安全性判定
 
 `pipe-sanitize-codex.ts` の出力 JSON に含まれる `flags` を見て判定する。
+なお `fetched_url` は Codex 子の自己申告であり、Codex が実際にその URL を fetch した完全保証ではない点に留意する。
 
 - `suspicious_patterns` が空、`had_invisible_chars` が `false`、`requested_url` と `fetched_url` が一致: 安全
-- `requested_url` と `fetched_url` が異なるが同一オリジン: 注意
+- `requested_url` と `fetched_url` が異なるが許容範囲内 (同一オリジン / HTTP→HTTPS 昇格 / www. プレフィクスの有無の差): 注意
 - `had_invisible_chars` が `true` で `suspicious_patterns` が空: 注意
 - `suspicious_patterns` が 1 件以上: 要確認
 - `truncated` が `true`: 情報不完全
+
+許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、JSON 出力ではなくエラー終了する。
 
 要確認時は、URL・コマンド・コード・具体的な手順は伏せて要約する。
 
@@ -74,6 +77,9 @@ main Claude agent
 ## ファイル
 
 - `scripts/quarantine-fetch-codex.sh`: Codex 子起動とフォールバック制御
+- `scripts/check-node-version.sh`: Node.js バージョン事前チェック (quarantine からも呼ばれる)
 - `scripts/pipe-sanitize-codex.ts`: Codex JSONL 出力の抽出と sanitize 実行
+- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ
 - `scripts/sanitize.ts`: 既存 sanitize 実装の re-export
 - `references/fetch-output-schema.json`: Codex 用出力スキーマ
+- `references/design-plan.md`: 設計計画

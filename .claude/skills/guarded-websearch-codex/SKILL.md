@@ -63,6 +63,7 @@ main Claude agent
 ### 3. 安全性判定
 
 `pipe-sanitize-search-codex.ts` の出力 JSON に含まれる `aggregate_flags` を見て判定する。
+なお `reported_query` は Codex 子の自己申告であり、Codex が実際にそのクエリで検索した完全保証ではない点に留意する。
 
 - `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` / `dropped_results` が `0`、`query_mismatch` が `false`: 安全
 - `had_invisible_chars` が `true` で `suspicious_patterns` が空、その他が 0 / `false`: 注意
@@ -70,6 +71,8 @@ main Claude agent
 - `suspicious_patterns` が 1 件以上: 要確認
 - `filtered_unsafe_urls` が 1 件以上: 要確認
 - `query_mismatch` が `true`: 要確認（Codex 子が CLI 引数と異なるクエリを申告。`reported_query` を提示してユーザー確認）
+
+NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI news" のような case 違いは `query_mismatch` が立つ。検知漏れより過剰検知側に倒す設計の割り切り。
 
 要確認時は、検出された title・snippet を伏せた上で概要だけを示す。
 
@@ -82,7 +85,9 @@ main Claude agent
 ## ファイル
 
 - `scripts/quarantine-search-codex.sh`: Codex 子起動とフォールバック制御
+- `scripts/check-node-version.sh`: Node.js バージョン事前チェック (quarantine からも呼ばれる)
 - `scripts/pipe-sanitize-search-codex.ts`: Codex JSONL から検索結果を抽出して sanitize
+- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ (webfetch-codex から re-export)
 - `scripts/sanitize.ts`: 既存 sanitize 実装の re-export
 - `references/search-output-schema.json`: Codex 用出力スキーマ
 - `references/design-plan.md`: 設計計画

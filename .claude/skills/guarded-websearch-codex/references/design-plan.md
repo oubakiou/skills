@@ -103,12 +103,15 @@ guarded-websearch-codex/
 │   ├── design-plan.md
 │   └── search-output-schema.json
 └── scripts/
+    ├── check-node-version.sh
+    ├── codex-jsonl.ts
     ├── quarantine-search-codex.sh
     ├── pipe-sanitize-search-codex.ts
     └── sanitize.ts
 ```
 
-- `sanitize.ts` は `guarded-webfetch-codex` 経由で既存実装を共有する
+- `sanitize.ts` と `codex-jsonl.ts` は `guarded-webfetch-codex` 経由で既存実装を共有する
+- `check-node-version.sh` は main agent の事前チェックと quarantine スクリプトからのサブプロセス呼び出しの両方で使う
 - 一時ファイルと隔離用 cwd は `.temp/guarded-websearch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
 ## 7. 実行フロー
@@ -158,11 +161,16 @@ Codex 子への要求:
 ### ステップ 4: 安全性判定
 
 親 Claude は `aggregate_flags` に基づいて安全性判定を行う。
+`reported_query` は Codex 子の自己申告であり、Codex が実際にそのクエリで検索した完全保証ではない点に留意する。
 
-- `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` が `0`: 安全
+- `suspicious_patterns` が空、`had_invisible_chars` が `false`、`filtered_unsafe_urls` / `dropped_results` が `0`、`query_mismatch` が `false`: 安全
 - `had_invisible_chars` が `true` で `suspicious_patterns` が空: 注意
+- `dropped_results` が 1 件以上: 注意
 - `suspicious_patterns` が非空: 要確認
 - `filtered_unsafe_urls` が 1 件以上: 要確認
+- `query_mismatch` が `true`: 要確認 (`reported_query` を提示してユーザー確認)
+
+NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI news" のような case 違いは `query_mismatch` を立てる (検知漏れより過剰検知側に倒す設計の割り切り)。
 
 ## 8. サニタイザの処理
 
@@ -244,6 +252,7 @@ Codex 子への要求:
 - CLI イベント schema の厳密化
 - 危険結果だけを自動で `[redacted]` 表示する補助ロジック
 - `guarded-webfetch-codex` との連携テンプレート強化
+- `read-only` 失敗判定の絞り込み: 現状の `failed to create session` パターンは認証・ネットワーク等の他要因にもマッチしうるため、Codex CLI 側でエラーコード/種別が出せるようになり次第、サンドボックス起因のみに絞り込みたい
 
 ## 13. 参考資料
 

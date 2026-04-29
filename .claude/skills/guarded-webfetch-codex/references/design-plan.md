@@ -111,12 +111,16 @@ guarded-webfetch-codex/
 │   ├── design-plan.md
 │   └── fetch-output-schema.json
 └── scripts/
+    ├── check-node-version.sh
+    ├── codex-jsonl.ts
     ├── quarantine-fetch-codex.sh
     ├── pipe-sanitize-codex.ts
     └── sanitize.ts
 ```
 
 - `sanitize.ts` は `guarded-webfetch-claude` の実装を re-export して共有する
+- `codex-jsonl.ts` は Codex JSONL から最終 `agent_message` を取り出す共通ユーティリティで、`guarded-websearch-codex` からも re-export する
+- `check-node-version.sh` は main agent の事前チェックと quarantine スクリプトからのサブプロセス呼び出しの両方で使う
 - 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
 ## 6. 実行フロー
@@ -158,24 +162,27 @@ Codex 子に与えるプロンプトでは次を要求する。
 `pipe-sanitize-codex.ts` は以下を行う。
 
 1. CLI 引数の URL を検証（`http://` または `https://` のみ許可）
-2. stdin から Codex の JSONL イベント列を読む
-3. `type === "item.completed"` かつ `item.type === "agent_message"` の最終イベントを抽出
+2. stdin から Codex の JSONL イベント列を読み、空なら fail-closed
+3. `codex-jsonl.ts` の `extractLastAgentMessage` で `type === "item.completed"` かつ `item.type === "agent_message"` の最終イベントを抽出
 4. `item.text` を JSON として parse し、`url`, `raw_text`, `fetch_success`, `error_message` を検証
 5. `fetch_success === false` なら fail-closed で終了
-6. CLI 引数の URL と取得 URL のオリジンを比較し、不一致なら fail-closed で終了
+6. CLI 引数の URL と取得 URL の遷移を `isAllowedOriginTransition` で検証 (同一オリジン / HTTPS 昇格 / www. プレフィクス差を許容)。許容範囲外なら fail-closed
 7. `sanitize(requestedUrl, fetchedUrl, rawText)` を実行し、`SanitizedDoc` JSON を stdout に出力
 
 ### ステップ 4: 安全性判定
 
 親 Claude は `flags` に基づき安全性判定を行う。
+`fetched_url` は Codex 子の自己申告であり、Codex が実際にその URL を fetch した完全保証ではない点に留意する。
 
-| 条件                                                                                                  | 判定       | 振る舞い                |
-| ----------------------------------------------------------------------------------------------------- | ---------- | ----------------------- |
-| `suspicious_patterns` が空、`had_invisible_chars` が `false`、`requested_url` と `fetched_url` が一致 | 安全       | 通常応答                |
-| `requested_url` と `fetched_url` が異なるが同一オリジン                                               | 注意       | 両 URL を通知           |
-| `had_invisible_chars` が `true` で `suspicious_patterns` が空                                         | 注意       | 変形通知付きで応答      |
-| `suspicious_patterns` が 1 件以上                                                                     | 要確認     | actionable な出力を保留 |
-| `truncated` が `true`                                                                                 | 情報不完全 | 切り詰めを通知          |
+| 条件                                                                                                                 | 判定       | 振る舞い                |
+| -------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------- |
+| `suspicious_patterns` が空、`had_invisible_chars` が `false`、`requested_url` と `fetched_url` が一致                | 安全       | 通常応答                |
+| `requested_url` と `fetched_url` が異なるが許容範囲内 (同一オリジン / HTTP→HTTPS 昇格 / www. プレフィクスの有無の差) | 注意       | 両 URL を通知           |
+| `had_invisible_chars` が `true` で `suspicious_patterns` が空                                                        | 注意       | 変形通知付きで応答      |
+| `suspicious_patterns` が 1 件以上                                                                                    | 要確認     | actionable な出力を保留 |
+| `truncated` が `true`                                                                                                | 情報不完全 | 切り詰めを通知          |
+
+許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、エラー終了する。許容範囲は Claude 版 (`isAllowedOriginTransition`) と揃えており、Codex 子が末尾 `/` 補完 / www. 補完 / HTTPS 昇格などの正規化を行うことを前提にしている。
 
 ## 7. サニタイザの処理層
 
@@ -283,7 +290,7 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 - **Codex JSONL parser の厳密化**: イベント schema を型定義や JSON Schema として固定し、CLI 変更検知をしやすくする
 - **guarded-websearch-codex**: 検索結果一覧向けに同じ構造を展開する
 - **二段隔離**: Codex 子を取得専用、別プロセスを要約専用に分離する
-- **より厳密な権限評価**: `read-only` 失敗理由を分類し、フォールバック条件をより限定する
+- **より厳密な権限評価**: `read-only` 失敗理由を分類し、フォールバック条件をより限定する。現状の `failed to create session` パターンは認証・ネットワーク等の他要因にもマッチしうるため、Codex CLI 側でエラーコード/種別が出せるようになり次第、サンドボックス起因のみに絞り込みたい
 
 ## 12. 参考資料
 

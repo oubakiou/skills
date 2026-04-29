@@ -3,6 +3,7 @@
  * @example codex --search exec --json ... | node pipe-sanitize-codex.ts "<url>"
  */
 
+import { extractLastAgentMessage } from './codex-jsonl.ts'
 import { sanitize } from './sanitize.ts'
 
 interface CodexFetchOutput {
@@ -12,21 +13,24 @@ interface CodexFetchOutput {
   url: string
 }
 
-interface AgentMessageEvent {
-  item: { text: string; type: 'agent_message' }
-  type: 'item.completed'
-}
-
-interface ErrorEvent {
-  message: string
-  type: 'error'
-}
-
 const parseUrl = (url: string): URL => {
   try {
     return new URL(url)
   } catch {
     throw new Error(`URL のパースに失敗しました: ${url}`)
+  }
+}
+
+const parseUrlPair = (
+  requestedUrl: string,
+  fetchedUrl: string
+): { requested: URL; fetched: URL } => {
+  try {
+    return { fetched: new URL(fetchedUrl), requested: new URL(requestedUrl) }
+  } catch {
+    throw new Error(
+      `URL のオリジン比較に失敗しました (requested: ${requestedUrl}, fetched: ${fetchedUrl})`
+    )
   }
 }
 
@@ -39,28 +43,46 @@ export const validateCliUrl = (url: string): void => {
   }
 }
 
+const stripWwwPrefix = (hostname: string): string => hostname.replace(/^www\./i, '')
+
+/**
+ * 要求 URL → 取得 URL の遷移が許容範囲かを判定する。
+ *
+ * 許容ケース（実運用で頻発する正規リダイレクト）:
+ * - 完全一致
+ * - HTTPS 昇格: http → https（同一ホスト・同一ポート）
+ * - www. プレフィクスの有無の差: example.com ↔ www.example.com（同一スキーム・同一ポート）
+ * - 上記の組み合わせ
+ *
+ * 拒否ケース（fail-closed の対象）:
+ * - HTTPS から HTTP への降格
+ * - クロスオリジンへの遷移（CDN/別ホストなど。eTLD+1 判定は public suffix list が必要なため対応しない）
+ * - ポート変更
+ *
+ * Codex 子は LLM 経由で URL を取得するため、末尾 `/` の付与・www. 補完・HTTPS 昇格などの
+ * 正規化が起きやすい。これらを fail-closed すると正常な fetch でも頻繁に弾かれるため、
+ * Claude 版と同じ許容範囲を採用する。
+ */
+const isAllowedOriginTransition = (requested: URL, fetched: URL): boolean => {
+  const schemeOk =
+    requested.protocol === fetched.protocol ||
+    (requested.protocol === 'http:' && fetched.protocol === 'https:')
+  const hostOk = stripWwwPrefix(requested.hostname) === stripWwwPrefix(fetched.hostname)
+  const portOk = requested.port === fetched.port
+  return schemeOk && hostOk && portOk
+}
+
 export const validateUrlOriginMatch = (requestedUrl: string, fetchedUrl: string): void => {
-  const requested = parseUrl(requestedUrl)
-  const fetched = parseUrl(fetchedUrl)
-  if (requested.origin !== fetched.origin) {
+  const { requested, fetched } = parseUrlPair(requestedUrl, fetchedUrl)
+  if (!isAllowedOriginTransition(requested, fetched)) {
     throw new Error(
-      `隔離プロセスが異なるオリジンの URL を返しました (requested: ${requested.origin}, fetched: ${fetched.origin})`
+      `隔離プロセスが許容範囲外のオリジンへ遷移しました (requested: ${requested.origin}, fetched: ${fetched.origin}). コンテンツの出所が要求と一致しないため処理を中止します`
     )
   }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const isAgentMessageEvent = (value: unknown): value is AgentMessageEvent => {
-  if (!isRecord(value) || value.type !== 'item.completed' || !isRecord(value.item)) {
-    return false
-  }
-  return value.item.type === 'agent_message' && typeof value.item.text === 'string'
-}
-
-const isErrorEvent = (value: unknown): value is ErrorEvent =>
-  isRecord(value) && value.type === 'error' && typeof value.message === 'string'
 
 const parseJsonStrict = (text: string, errorMessage: string): unknown => {
   try {
@@ -97,50 +119,8 @@ const parseCodexFetchOutput = (text: string): CodexFetchOutput => {
   }
 }
 
-const parseJsonlEvents = (jsonl: string): unknown[] =>
-  jsonl
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .reduce<unknown[]>((acc, line) => {
-      try {
-        acc.push(JSON.parse(line))
-      } catch {
-        // JSON として解釈できない行は無視（Codex が JSONL に混在させる非構造化ログを想定）
-      }
-      return acc
-    }, [])
-
-const findLastAgentMessage = (events: unknown[]): string | undefined => {
-  const last = events.findLast(isAgentMessageEvent)
-  if (typeof last === 'undefined') {
-    return last
-  }
-  return last.item.text
-}
-
-const findLastErrorMessage = (events: unknown[]): string | undefined => {
-  const last = events.findLast(isErrorEvent)
-  if (typeof last === 'undefined') {
-    return last
-  }
-  return last.message
-}
-
-const handleMissingMessage = (events: unknown[]): never => {
-  const lastError = findLastErrorMessage(events)
-  if (typeof lastError === 'string') {
-    throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
-  }
-  throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
-}
-
 export const extractRawText = (jsonl: string): CodexFetchOutput => {
-  const events = parseJsonlEvents(jsonl)
-  const lastMessage = findLastAgentMessage(events)
-  if (typeof lastMessage !== 'string') {
-    return handleMissingMessage(events)
-  }
+  const lastMessage = extractLastAgentMessage(jsonl)
   const output = parseCodexFetchOutput(lastMessage)
   if (!output.fetch_success) {
     throw new Error(`Codex fetch が失敗しました: ${output.error_message}`)
@@ -170,6 +150,9 @@ const main = async (): Promise<void> => {
   }
   validateCliUrl(requestedUrl)
   const input = await readStdin()
+  if (input.trim().length === 0) {
+    throw new Error('stdin が空です')
+  }
   const { raw_text: rawText, url: fetchedUrl } = extractRawText(input)
   validateUrlOriginMatch(requestedUrl, fetchedUrl)
   process.stdout.write(`${JSON.stringify(sanitize(requestedUrl, fetchedUrl, rawText))}\n`)
@@ -180,24 +163,264 @@ const main = async (): Promise<void> => {
  * @example vp test .claude/skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts
  */
 
+const buildJsonl = (output: Record<string, unknown>): string =>
+  [
+    '{"type":"thread.started"}',
+    JSON.stringify({
+      item: { text: JSON.stringify(output), type: 'agent_message' },
+      type: 'item.completed',
+    }),
+  ].join('\n')
+
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest
 
   describe('extractRawText', () => {
-    it('Codex JSONL から最終 agent_message を抽出する', () => {
-      const input = [
-        '{"type":"thread.started"}',
-        String.raw`{"type":"item.completed","item":{"type":"agent_message","text":"{\"url\":\"https://example.com\",\"raw_text\":\"hello\",\"fetch_success\":true,\"error_message\":\"\"}"}}`,
-      ].join('\n')
-      const result = extractRawText(input)
-      expect(result.url).toBe('https://example.com')
-      expect(result.raw_text).toBe('hello')
-      expect(result.fetch_success).toBe(true)
+    describe('正常系', () => {
+      it('Codex JSONL から最終 agent_message を抽出する', () => {
+        const input = buildJsonl({
+          error_message: '',
+          fetch_success: true,
+          raw_text: 'hello',
+          url: 'https://example.com',
+        })
+        const result = extractRawText(input)
+        expect(result.url).toBe('https://example.com')
+        expect(result.raw_text).toBe('hello')
+        expect(result.fetch_success).toBe(true)
+      })
     })
 
-    it('error イベントしかない場合は失敗させる', () => {
-      const input = '{"type":"error","message":"boom"}'
-      expect(() => extractRawText(input)).toThrow('boom')
+    describe('JSONL レイヤの fail-closed', () => {
+      it('error イベントしかない場合は失敗させる', () => {
+        const input = '{"type":"error","message":"boom"}'
+        expect(() => extractRawText(input)).toThrow('boom')
+      })
+
+      it('agent_message も error も無い場合は汎用エラーで失敗させる', () => {
+        const input = '{"type":"thread.started"}'
+        expect(() => extractRawText(input)).toThrow('agent_message が見つかりません')
+      })
+
+      it('agent_message が JSON でない場合に失敗させる', () => {
+        const input =
+          '{"type":"item.completed","item":{"type":"agent_message","text":"plain text"}}'
+        expect(() => extractRawText(input)).toThrow('JSON ではありません')
+      })
+
+      it('agent_message が JSON 配列の場合に失敗させる', () => {
+        const input = String.raw`{"type":"item.completed","item":{"type":"agent_message","text":"[1,2,3]"}}`
+        expect(() => extractRawText(input)).toThrow('JSON オブジェクトではありません')
+      })
+    })
+
+    describe('Codex 出力スキーマ検証', () => {
+      it('fetch_success が false なら error_message を含めて失敗させる', () => {
+        const input = buildJsonl({
+          error_message: '404 Not Found',
+          fetch_success: false,
+          raw_text: '',
+          url: 'https://example.com',
+        })
+        expect(() => extractRawText(input)).toThrow('404 Not Found')
+      })
+
+      it('fetch_success が boolean でない場合に失敗させる', () => {
+        const input = buildJsonl({
+          error_message: '',
+          fetch_success: 'true',
+          raw_text: 'text',
+          url: 'https://example.com',
+        })
+        expect(() => extractRawText(input)).toThrow('fetch_success が boolean ではありません')
+      })
+
+      it('raw_text が文字列でない場合に失敗させる', () => {
+        const input = buildJsonl({
+          error_message: '',
+          fetch_success: true,
+          raw_text: 42,
+          url: 'https://example.com',
+        })
+        expect(() => extractRawText(input)).toThrow('raw_text が文字列ではありません')
+      })
+
+      it('url が文字列でない場合に失敗させる', () => {
+        const input = buildJsonl({
+          error_message: '',
+          fetch_success: true,
+          raw_text: 'text',
+          url: 123,
+        })
+        expect(() => extractRawText(input)).toThrow('url が文字列ではありません')
+      })
+    })
+  })
+
+  describe('validateCliUrl', () => {
+    it('https URL を許可する', () => {
+      expect(() => validateCliUrl('https://example.com')).not.toThrow()
+    })
+
+    it('http URL を許可する', () => {
+      expect(() => validateCliUrl('http://example.com')).not.toThrow()
+    })
+
+    it('ftp URL を拒否する', () => {
+      expect(() => validateCliUrl('ftp://example.com')).toThrow('プロトコルが不正')
+    })
+
+    it('file URL を拒否する', () => {
+      expect(() => validateCliUrl('file:///etc/passwd')).toThrow('プロトコルが不正')
+    })
+
+    it('javascript スキームの URL を拒否する', () => {
+      const scheme = 'javascript'
+      expect(() => validateCliUrl(`${scheme}:alert(1)`)).toThrow('プロトコルが不正')
+    })
+
+    it('不正な文字列を拒否する', () => {
+      expect(() => validateCliUrl('not-a-url')).toThrow('パースに失敗')
+    })
+
+    it('空文字を拒否する', () => {
+      expect(() => validateCliUrl('')).toThrow('パースに失敗')
+    })
+  })
+
+  describe('validateUrlOriginMatch', () => {
+    describe('許可ケース', () => {
+      it('同一オリジンの URL を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://example.com')
+        ).not.toThrow()
+      })
+
+      it('同一オリジンでパスが異なる URL を許可する（リダイレクト等）', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com/page', 'https://example.com/redirected')
+        ).not.toThrow()
+      })
+
+      it('HTTP → HTTPS の昇格を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('http://example.com/page', 'https://example.com/page')
+        ).not.toThrow()
+      })
+
+      it('www. プレフィクスの追加を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://www.example.com')
+        ).not.toThrow()
+      })
+
+      it('www. プレフィクスの除去を許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://www.example.com', 'https://example.com')
+        ).not.toThrow()
+      })
+
+      it('HTTPS 昇格と www. 追加の組み合わせを許可する', () => {
+        expect(() =>
+          validateUrlOriginMatch('http://example.com', 'https://www.example.com')
+        ).not.toThrow()
+      })
+    })
+
+    describe('拒否ケース（fail-closed）', () => {
+      it('異なるオリジンの URL を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://malicious.com')
+        ).toThrow('許容範囲外のオリジン')
+      })
+
+      it('HTTPS から HTTP への降格を拒否する', () => {
+        expect(() => validateUrlOriginMatch('https://example.com', 'http://example.com')).toThrow(
+          '許容範囲外のオリジン'
+        )
+      })
+
+      it('CDN 等のサブドメイン変更を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://cdn.example.com')
+        ).toThrow('許容範囲外のオリジン')
+      })
+
+      it('ポートが異なる URL を拒否する', () => {
+        expect(() =>
+          validateUrlOriginMatch('https://example.com', 'https://example.com:8080')
+        ).toThrow('許容範囲外のオリジン')
+      })
+
+      it('別の TLD への遷移を拒否する', () => {
+        expect(() => validateUrlOriginMatch('https://example.com', 'https://example.org')).toThrow(
+          '許容範囲外のオリジン'
+        )
+      })
+
+      it('パース不能な URL でエラーを投げる', () => {
+        expect(() => validateUrlOriginMatch('not-a-url', 'https://example.com')).toThrow(
+          'オリジン比較に失敗'
+        )
+      })
+    })
+  })
+
+  describe('パイプライン統合テスト', () => {
+    it('正常な入力をサニタイズして出力する', () => {
+      const input = buildJsonl({
+        error_message: '',
+        fetch_success: true,
+        raw_text: 'Normal text with <|im_start|> injection',
+        url: 'https://example.com',
+      })
+      const { url, raw_text: rawText } = extractRawText(input)
+      const result = sanitize(url, url, rawText)
+      expect(result.requested_url).toBe('https://example.com')
+      expect(result.fetched_url).toBe('https://example.com')
+      expect(result.text).toContain('[FILTERED:chat_template]')
+      expect(result.text).not.toContain('<|im_start|>')
+      expect(result.flags.suspicious_patterns.chat_template).toBeGreaterThanOrEqual(1)
+    })
+
+    it('隔離プロセスが異なるオリジンの URL を返した場合にエラーを投げる', () => {
+      const input = buildJsonl({
+        error_message: '',
+        fetch_success: true,
+        raw_text: 'safe content',
+        url: 'https://malicious.com',
+      })
+      const { url: fetchedUrl } = extractRawText(input)
+      const cliUrl = 'https://example.com'
+      expect(() => validateUrlOriginMatch(cliUrl, fetchedUrl)).toThrow('許容範囲外のオリジン')
+    })
+
+    it('同一オリジン内のリダイレクトを許容し両 URL を保持する', () => {
+      const input = buildJsonl({
+        error_message: '',
+        fetch_success: true,
+        raw_text: 'content',
+        url: 'https://example.com/redirected',
+      })
+      const { url: fetchedUrl, raw_text: rawText } = extractRawText(input)
+      const cliUrl = 'https://example.com/original'
+      validateUrlOriginMatch(cliUrl, fetchedUrl)
+      const result = sanitize(cliUrl, fetchedUrl, rawText)
+      expect(result.requested_url).toBe('https://example.com/original')
+      expect(result.fetched_url).toBe('https://example.com/redirected')
+    })
+
+    it('不可視 Unicode 文字を含むテキストをサニタイズする', () => {
+      const input = buildJsonl({
+        error_message: '',
+        fetch_success: true,
+        raw_text: 'text\u{E0069}\u{E0067}​more',
+        url: 'https://example.com',
+      })
+      const { url, raw_text: rawText } = extractRawText(input)
+      const result = sanitize(url, url, rawText)
+      expect(result.text).toBe('textmore')
+      expect(result.flags.had_invisible_chars).toBe(true)
     })
   })
 }
