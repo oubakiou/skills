@@ -143,6 +143,8 @@ guarded-webfetch-claude と同一の環境変数を設定する:
 
 `.temp/guarded-webfetch-claude/` ではなく `.temp/guarded-websearch-claude/` を使うのは、両スキルを並行起動した際にディレクトリが衝突しないようにするため。
 
+webfetch と同様に **実行ごとに `mktemp -d "$quarantine_base/run-XXXXXXXX"` でサブディレクトリを切り、`trap EXIT` で削除する** 設計を採用している。websearch は現状並列起動を想定していないが、webfetch と実装パターンを揃えることで保守性を担保し、将来並列起動を許容する場合の race も予防できる。詳細な意図は guarded-webfetch-claude の design-plan.md セクション 4 を参照。
+
 ### permission 評価順序
 
 guarded-webfetch-claude と同様、Claude Code の permission 評価順序は **deny → ask → allow** であり deny が優先される。本スキルの隔離プロセスでも Bash を使用しないため `deny` に含めて問題ない。

@@ -130,7 +130,13 @@ skill の description は undertrigger を避けるためやや pushy に書く�
 
    これらは subprocess（Bash・hooks・MCP stdio）から認証情報を含む設定ファイルを読み出されないよう、空ファイルで先回りして「シャドーイング」する戦略の副作用とみられる。プロジェクト直下で隔離プロセスを起動するとこれらが既存ファイルを上書きしうるため、`.temp/guarded-webfetch-claude/` に逃がす必要がある。
 
-`mkdir -p "$quarantine_cwd"` でディレクトリを毎回確保し、副作用ファイル群がここにのみ累積するようにする。`.temp/` は AGENTS.md でエージェントの一時生成物の置き場として規定されており、`.gitignore` で除外する運用と整合する。
+**実行ごとに `run-*` サブディレクトリを切り、終了時に削除する**: 並列起動（最大 5 URL）と「毎回クリーンな環境で起動する」を両立するため、`quarantine-fetch.sh` は `mktemp -d "$quarantine_base/run-XXXXXXXX"` で実行ごとに独立した cwd を作成し、`trap 'rm -rf "$quarantine_cwd"' EXIT` で終了時に自動削除する。これにより:
+
+- 各プロセスは前回・並列の他プロセスから完全に独立した cwd で動作する（race なし）
+- 前回実行が残した SCRUB 副作用ファイル・auto-discovery 用の `.claude/agents/` 等が次回プロセスに持ち越されない
+- ベース `.temp/guarded-webfetch-claude/` は空のまま残り、誤って他用途に転用されにくい
+
+`.temp/` は AGENTS.md でエージェントの一時生成物の置き場として規定されており、`.gitignore` で除外する運用と整合する。
 
 ### permission 評価順序に関する注意
 

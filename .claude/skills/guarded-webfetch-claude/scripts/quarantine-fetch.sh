@@ -47,8 +47,13 @@ skill_dir="$(dirname "$script_dir")"
 # 2. CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 が cwd に生成する空ファイル群
 #    (.env*, .npmrc, package*.json, node_modules/ 等) をプロジェクト直下に
 #    散らかさない。詳細は references/design-plan.md §4 を参照
-quarantine_cwd="$PWD/.temp/guarded-webfetch-claude"
-mkdir -p "$quarantine_cwd"
+#
+# 並列起動 (最大 5 URL) と「毎回クリーン」を両立するため、
+# 実行ごとに mktemp で run-* サブディレクトリを切り、trap EXIT で削除する。
+# これにより、各プロセスは前回・並列の他プロセスから完全に独立した cwd で動作する。
+quarantine_base="$PWD/.temp/guarded-webfetch-claude"
+mkdir -p "$quarantine_base"
+quarantine_cwd="$(mktemp -d "$quarantine_base/run-XXXXXXXX")"
 
 fetch_schema="$(cat "$skill_dir/references/fetch-output-schema.json")"
 fetch_settings="$skill_dir/references/quarantine-fetch-settings.json"
@@ -104,7 +109,7 @@ run_claude() {
 }
 
 stderr_file="$(mktemp)"
-trap 'rm -f "$stderr_file"' EXIT
+trap 'rm -f "$stderr_file"; rm -rf "$quarantine_cwd"' EXIT
 
 # `set -e` 下で失敗を捕捉できるよう、`if` の条件部で実行する
 output=""
