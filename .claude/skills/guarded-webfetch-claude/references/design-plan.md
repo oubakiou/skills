@@ -119,16 +119,16 @@ skill の description は undertrigger を避けるためやや pushy に書く�
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` | `1`     | ビルトインサブエージェント（Explore, Plan 等）を無効化                                                                                                                                                                                                                                                                       |
 | `CLAUDE_CODE_SKIP_PROMPT_HISTORY`         | `1`     | セッション履歴・トランスクリプトのディスク書き込みを無効化                                                                                                                                                                                                                                                                   |
 
-### 隔離プロセスの cwd を `.temp/guarded-webfetch/` に切り替える根拠
+### 隔離プロセスの cwd を `.temp/guarded-webfetch-claude/` に切り替える根拠
 
-`quarantine-fetch.sh` は `claude -p` をサブシェル内で `cd "$PWD/.temp/guarded-webfetch" && ...` として起動する。この cwd 切替は次の 2 つの目的を兼ねる:
+`quarantine-fetch.sh` は `claude -p` をサブシェル内で `cd "$PWD/.temp/guarded-webfetch-claude" && ...` として起動する。この cwd 切替は次の 2 つの目的を兼ねる:
 
 1. **plugins / hooks / `.claude/` 設定の auto-discovery 抑止**: `claude -p` は cwd を起点に `.claude/` 配下や hooks をディスカバリするため、空ディレクトリで起動することで親プロジェクトの設定が隔離プロセスに混入するのを防ぐ。
 2. **`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` の副作用の隔離**: SCRUB 有効時、`claude -p` は起動時に cwd へ以下の空ファイル・空ディレクトリを生成する（実測で確認）:
    - 空ファイル (17 個): `.env`, `.env.development`, `.env.development.local`, `.env.local`, `.env.production`, `.env.production.local`, `.env.test`, `.env.test.local`, `.gitmodules`, `.npmrc`, `.yarnrc`, `.yarnrc.yml`, `bunfig.toml`, `package.json`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`
    - 空ディレクトリ (5 個): `node_modules/`, `node_modules/.bin/`, `.claude/`, `.claude/agents/`, `.claude/commands/`
 
-   これらは subprocess（Bash・hooks・MCP stdio）から認証情報を含む設定ファイルを読み出されないよう、空ファイルで先回りして「シャドーイング」する戦略の副作用とみられる。プロジェクト直下で隔離プロセスを起動するとこれらが既存ファイルを上書きしうるため、`.temp/guarded-webfetch/` に逃がす必要がある。
+   これらは subprocess（Bash・hooks・MCP stdio）から認証情報を含む設定ファイルを読み出されないよう、空ファイルで先回りして「シャドーイング」する戦略の副作用とみられる。プロジェクト直下で隔離プロセスを起動するとこれらが既存ファイルを上書きしうるため、`.temp/guarded-webfetch-claude/` に逃がす必要がある。
 
 `mkdir -p "$quarantine_cwd"` でディレクトリを毎回確保し、副作用ファイル群がここにのみ累積するようにする。`.temp/` は AGENTS.md でエージェントの一時生成物の置き場として規定されており、`.gitignore` で除外する運用と整合する。
 

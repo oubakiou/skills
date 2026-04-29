@@ -63,7 +63,7 @@ OK が返れば次のステップに進む。exit code 3 で失敗した場合�
 - `<対象URL>` は実行時に実際の URL に直接書き換える
 - **シェルインジェクション防止**: URL は必ずシングルクォートで囲む（例: `'https://example.com/page?q=1'`）。URL にシングルクォートが含まれる場合は `'\''` でエスケープする。ダブルクォートや `$()` を含む URL がシェル展開されるのを防ぐため
 
-スクリプトは隔離環境変数の設定、`.temp/guarded-webfetch/` への cwd 切り替え（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` の副作用で生成される空ファイル群をプロジェクト直下に散らかさないため）、`claude -p` での隔離 fetch、`pipe-sanitize.ts` でのサニタイズ、レートリミット時の 10 秒待機・1 回リトライまでを集約している。詳細な実装意図は `references/design-plan.md` を参照。
+スクリプトは隔離環境変数の設定、`.temp/guarded-webfetch-claude/` への cwd 切り替え（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` の副作用で生成される空ファイル群をプロジェクト直下に散らかさないため）、`claude -p` での隔離 fetch、`pipe-sanitize.ts` でのサニタイズ、レートリミット時の 10 秒待機・1 回リトライまでを集約している。詳細な実装意図は `references/design-plan.md` を参照。
 
 **失敗時の取り扱い**:
 

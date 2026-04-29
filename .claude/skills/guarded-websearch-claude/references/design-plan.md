@@ -137,11 +137,11 @@ guarded-webfetch-claude と同一の環境変数を設定する:
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` | `1`     | ビルトインサブエージェントを無効化 |
 | `CLAUDE_CODE_SKIP_PROMPT_HISTORY`         | `1`     | セッション履歴の書き込みを無効化   |
 
-### 隔離プロセスの cwd を `.temp/guarded-websearch/` に切り替える根拠
+### 隔離プロセスの cwd を `.temp/guarded-websearch-claude/` に切り替える根拠
 
-`quarantine-search.sh` は `claude -p` をサブシェル内で `cd "$PWD/.temp/guarded-websearch" && ...` として起動する。理由は guarded-webfetch-claude と同一（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` の副作用ファイル群の隔離）。詳細な副作用ファイル一覧は guarded-webfetch-claude の design-plan.md セクション 4 を参照。
+`quarantine-search.sh` は `claude -p` をサブシェル内で `cd "$PWD/.temp/guarded-websearch-claude" && ...` として起動する。理由は guarded-webfetch-claude と同一（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` の副作用ファイル群の隔離）。詳細な副作用ファイル一覧は guarded-webfetch-claude の design-plan.md セクション 4 を参照。
 
-`.temp/guarded-webfetch/` ではなく `.temp/guarded-websearch/` を使うのは、両スキルを並行起動した際にディレクトリが衝突しないようにするため。
+`.temp/guarded-webfetch-claude/` ではなく `.temp/guarded-websearch-claude/` を使うのは、両スキルを並行起動した際にディレクトリが衝突しないようにするため。
 
 ### permission 評価順序
 
@@ -198,7 +198,7 @@ sanitize.ts は guarded-webfetch-claude 側で一元管理し、本スキルは 
 
 1. Node.js バージョンチェック（exit code 3）
 2. クエリの入口検証: 空文字 / バッククォート / `$()` / 制御文字 / 1000 字超 を fail-closed で拒否（exit code 2）
-3. cwd を `.temp/guarded-websearch/` に切り替えて隔離環境変数 (セクション 5) を設定し、`claude -p --tools "WebSearch" ... --json-schema search-output-schema.json --max-turns 3` を起動
+3. cwd を `.temp/guarded-websearch-claude/` に切り替えて隔離環境変数 (セクション 5) を設定し、`claude -p --tools "WebSearch" ... --json-schema search-output-schema.json --max-turns 3` を起動
 4. 隔離プロセスの stderr が `rate.?limit` / `429` / `too many requests` / `overloaded` のいずれかを含む場合、10 秒待機後に 1 回だけ再試行（レートリミット以外のエラーはリトライせず exit code 1）
 5. 成功時は stdout の JSON を `node pipe-sanitize-search.ts '<検索クエリ>'` にパイプで接続
 
@@ -275,7 +275,7 @@ guarded-webfetch-claude の sanitize.ts を共有使用する。検索結果の�
 | `--allowedTools`  | `"WebSearch"`                     | WebSearch を自動許可                            |
 | `--settings`      | `quarantine-search-settings.json` | ハード（後述）                                  |
 | 環境変数          | セクション 5 参照                 | ハード                                          |
-| cwd               | `.temp/guarded-websearch/`        | ハード（セクション 5 参照）                     |
+| cwd               | `.temp/guarded-websearch-claude/` | ハード（セクション 5 参照）                     |
 | `--output-format` | `json`                            | ハード                                          |
 | `--json-schema`   | `search-output-schema.json`       | ハード                                          |
 | `--max-turns`     | `3`                               | ハード（WebSearch 1 回 + リトライ 1 回 + 出力） |

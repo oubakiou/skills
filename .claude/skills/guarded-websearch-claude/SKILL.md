@@ -74,7 +74,7 @@ OK が返れば次のステップに進む。exit code 3 で失敗した場合�
 - **シェルインジェクション防止**: クエリは必ずシングルクォートで囲む（例: `'Claude Code 使い方'`）。クエリにシングルクォートが含まれる場合は `'\''` でエスケープする。ダブルクォートや `$()` を含むクエリがシェル展開されるのを防ぐため
 - **クエリ検証不能に関する注意**: CLI 引数のクエリは出力の `query` フィールドをユーザーの意図と一致させるためのものであり、隔離プロセスが実際に実行した検索クエリを検証する手段はない（既知の限界。詳細は `references/design-plan.md` セクション 11 参照）
 
-スクリプトは隔離環境変数の設定、`.temp/guarded-websearch/` への cwd 切り替え（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` の副作用で生成される空ファイル群をプロジェクト直下に散らかさないため）、`claude -p` での隔離 search、`pipe-sanitize-search.ts` でのサニタイズ、レートリミット時の 10 秒待機・1 回リトライまでを集約している。詳細な実装意図は `references/design-plan.md` を参照。
+スクリプトは隔離環境変数の設定、`.temp/guarded-websearch-claude/` への cwd 切り替え（auto-discovery 抑止と `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` の副作用で生成される空ファイル群をプロジェクト直下に散らかさないため）、`claude -p` での隔離 search、`pipe-sanitize-search.ts` でのサニタイズ、レートリミット時の 10 秒待機・1 回リトライまでを集約している。詳細な実装意図は `references/design-plan.md` を参照。
 
 **失敗時の取り扱い**:
 
