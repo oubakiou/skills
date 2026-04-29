@@ -3,8 +3,8 @@
  * @example codex --search exec --json ... | node pipe-sanitize-search-codex.ts "<query>"
  */
 
-import { extractLastAgentMessage } from './codex-jsonl.ts'
 import { type SanitizeFlags, type SuspiciousPatternCounts, sanitize } from './sanitize.ts'
+import { extractLastAgentMessage } from './codex-jsonl.ts'
 
 interface SearchResult {
   snippet: string
