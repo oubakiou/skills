@@ -290,7 +290,7 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 - **Codex JSONL parser の厳密化**: イベント schema を型定義や JSON Schema として固定し、CLI 変更検知をしやすくする
 - **guarded-websearch-codex**: 検索結果一覧向けに同じ構造を展開する
 - **二段隔離**: Codex 子を取得専用、別プロセスを要約専用に分離する
-- **より厳密な権限評価**: `read-only` 失敗理由を分類し、フォールバック条件をより限定する。現状の `failed to create session` パターンは認証・ネットワーク等の他要因にもマッチしうるため、Codex CLI 側でエラーコード/種別が出せるようになり次第、サンドボックス起因のみに絞り込みたい
+- **より厳密な権限評価**: 現状は `read-only file system` と `os error 30` (EROFS の Linux errno) のみで read-only 起因のサンドボックス失敗を判定している。Codex CLI 側で機械可読なエラーコード/種別が提供されたら、文字列マッチではなくそちらに切り替えてさらに精度を上げたい
 
 ## 12. 参考資料
 

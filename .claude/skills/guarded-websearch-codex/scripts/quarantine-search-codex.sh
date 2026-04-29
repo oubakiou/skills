@@ -106,7 +106,12 @@ if run_read_only 2>"$QUARANTINE_CWD/.codex-readonly.stderr" | node "$PIPE_SANITI
   exit 0
 fi
 
-if grep -qiE 'read-only file system|failed to create session|os error 30' "$QUARANTINE_CWD/.codex-readonly.stderr"; then
+# EROFS (Linux errno 30) 起因の sandbox 失敗だけに絞る。
+# 'failed to create session' のような session 周りの汎用文言は認証・ネットワーク・
+# 内部障害でも出うるため、それで workspace-write に昇格させると不要な権限拡大になる。
+# Codex は Rust 製で、read-only fs への書き込み失敗は std::io::Error 経由で
+# 必ず "Read-only file system" か "(os error 30)" を含むエラー文を吐くため、この 2 つで十分捕捉できる。
+if grep -qiE 'read-only file system|os error 30' "$QUARANTINE_CWD/.codex-readonly.stderr"; then
   run_workspace_write | node "$PIPE_SANITIZER" "$QUERY"
   exit 0
 fi

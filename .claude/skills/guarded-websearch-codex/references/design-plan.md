@@ -252,7 +252,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 - CLI イベント schema の厳密化
 - 危険結果だけを自動で `[redacted]` 表示する補助ロジック
 - `guarded-webfetch-codex` との連携テンプレート強化
-- `read-only` 失敗判定の絞り込み: 現状の `failed to create session` パターンは認証・ネットワーク等の他要因にもマッチしうるため、Codex CLI 側でエラーコード/種別が出せるようになり次第、サンドボックス起因のみに絞り込みたい
+- `read-only` 失敗判定のさらなる厳密化: 現状は `read-only file system` と `os error 30` (EROFS の Linux errno) のみで判定している。Codex CLI 側で機械可読なエラーコード/種別が提供されたら、文字列マッチではなくそちらに切り替えてさらに精度を上げたい
 
 ## 13. 参考資料
 

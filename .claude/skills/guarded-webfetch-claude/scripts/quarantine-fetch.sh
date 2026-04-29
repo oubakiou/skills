@@ -39,6 +39,13 @@ if [[ "$URL" =~ [[:cntrl:]] ]]; then
   exit 2
 fi
 
+# 長大 URL で claude -p を起動して API コストを消費する経路を塞ぐ。
+# HTTP/1.1 慣習・主要ブラウザの実用上限・サーバの一般的な上限を踏まえ 2048 字を上限とする。
+if [ "${#URL}" -gt 2048 ]; then
+  echo "ERROR: URL too long (${#URL} chars, max 2048)" >&2
+  exit 2
+fi
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 skill_dir="$(dirname "$script_dir")"
 

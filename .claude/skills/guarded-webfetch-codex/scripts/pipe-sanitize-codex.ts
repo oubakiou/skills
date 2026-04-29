@@ -128,10 +128,26 @@ export const extractRawText = (jsonl: string): CodexFetchOutput => {
   return output
 }
 
-const readStdin = async (): Promise<string> => {
+/**
+ * 子 Codex の stdout バイト上限。50,000 字 raw_text (UTF-8 で最大 200KB) +
+ * JSONL の thread events / 構造化 framing を含めても通常 1MB を大きく超えないため、
+ * 2MB を超えた時点で異常 (子の暴走 / 攻撃的応答) と見なして fail-closed する。
+ */
+export const MAX_STDIN_BYTES = 2_000_000
+
+export const readStdin = async (
+  source: AsyncIterable<Uint8Array> = process.stdin,
+  maxBytes: number = MAX_STDIN_BYTES
+): Promise<string> => {
   const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.from(chunk))
+  let totalBytes = 0
+  for await (const chunk of source) {
+    const buffer = Buffer.from(chunk)
+    totalBytes += buffer.length
+    if (totalBytes > maxBytes) {
+      throw new Error(`stdin が上限を超えました (${totalBytes} > ${maxBytes} bytes)`)
+    }
+    chunks.push(buffer)
   }
   return Buffer.concat(chunks).toString('utf8')
 }
@@ -172,8 +188,39 @@ const buildJsonl = (output: Record<string, unknown>): string =>
     }),
   ].join('\n')
 
+const yieldChunks = async function* yieldChunks(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
+  for (const chunk of chunks) {
+    yield chunk
+  }
+}
+
 if (import.meta.vitest) {
   const { describe, expect, it } = import.meta.vitest
+
+  describe('readStdin', () => {
+    it('上限以下の入力を読み取れる', async () => {
+      const source = yieldChunks([new TextEncoder().encode('hello')])
+      const result = await readStdin(source, 100)
+      expect(result).toBe('hello')
+    })
+
+    it('上限を超えた時点で fail-closed する', async () => {
+      const source = yieldChunks([
+        new TextEncoder().encode('a'.repeat(60)),
+        new TextEncoder().encode('b'.repeat(60)),
+      ])
+      await expect(readStdin(source, 100)).rejects.toThrow('stdin が上限を超えました')
+    })
+
+    it('複数チャンクの累積で判定される (1 チャンク単独では超えない)', async () => {
+      const source = yieldChunks([
+        new TextEncoder().encode('a'.repeat(60)),
+        new TextEncoder().encode('b'.repeat(40)),
+        new TextEncoder().encode('c'),
+      ])
+      await expect(readStdin(source, 100)).rejects.toThrow('stdin が上限を超えました')
+    })
+  })
 
   describe('extractRawText', () => {
     describe('正常系', () => {

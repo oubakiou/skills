@@ -45,6 +45,13 @@ if [[ "$URL" =~ [[:cntrl:]] ]]; then
   exit 2
 fi
 
+# 長大 URL で codex 子を起動して API コストを消費する経路を塞ぐ。
+# HTTP/1.1 慣習・主要ブラウザの実用上限・サーバの一般的な上限を踏まえ 2048 字を上限とする。
+if [ "${#URL}" -gt 2048 ]; then
+  echo "ERROR: URL too long (${#URL} chars, max 2048)" >&2
+  exit 2
+fi
+
 # 隔離プロセスの cwd を実行ごとに mktemp で run-* サブディレクトリに切り、
 # trap EXIT で削除する。並列起動や前回実行の残留ファイル混入を避けるため。
 QUARANTINE_BASE="$PWD/.temp/guarded-webfetch-codex"
@@ -98,7 +105,12 @@ if run_read_only 2>"$QUARANTINE_CWD/.codex-readonly.stderr" | node "$PIPE_SANITI
   exit 0
 fi
 
-if grep -qiE 'read-only file system|failed to create session|os error 30' "$QUARANTINE_CWD/.codex-readonly.stderr"; then
+# EROFS (Linux errno 30) 起因の sandbox 失敗だけに絞る。
+# 'failed to create session' のような session 周りの汎用文言は認証・ネットワーク・
+# 内部障害でも出うるため、それで workspace-write に昇格させると不要な権限拡大になる。
+# Codex は Rust 製で、read-only fs への書き込み失敗は std::io::Error 経由で
+# 必ず "Read-only file system" か "(os error 30)" を含むエラー文を吐くため、この 2 つで十分捕捉できる。
+if grep -qiE 'read-only file system|os error 30' "$QUARANTINE_CWD/.codex-readonly.stderr"; then
   run_workspace_write | node "$PIPE_SANITIZER" "$URL"
   exit 0
 fi
