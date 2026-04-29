@@ -29,7 +29,7 @@
 
 本設計では次の 3 層を採用する。
 
-1. **Gemini 子プロセスによる取得 (ハード)** — `gemini -p --policy <toml>` で Policy Engine による全ツール `deny` をベースに `web_fetch` のみ `allow` する。Claude 版と同等の細粒度ツール固定が可能で、Codex 版より厳密にできる
+1. **Gemini 子プロセスによる取得 (ハード)** — `gemini -p --policy <toml>` で Policy Engine による全ツール `deny` をベースに `web_fetch` のみ `allow` する。ツール権限制限としては Claude 版 (`--allowedTools "WebFetch"`) と同等の強度を持ち、Codex 版 (CLI 直のツール固定なし) よりは厳密
 2. **静的サニタイザ (ハード)** — Gemini の `-o json` 出力を `pipe-sanitize-gemini.ts` にパイプし、`response` フィールド内の JSON 抽出、オリジン検証、Unicode 不可視文字除去、LLM マーカー無害化をランタイム強制する
 3. **安全性フラグによる行動制御 (ソフト)** — `sanitize.ts` が出力する `suspicious_patterns`、`had_invisible_chars`、`truncated` 等をもとに、親 Claude が応答可否を判断する
 
@@ -66,8 +66,10 @@ main Claude agent
 共通:
 
 - **不可視 Unicode 攻撃**: Tag characters (U+E0000-U+E007F)、zero-width 文字、bidi オーバーライドによる不可視命令埋め込み
+- **HTML 構造を使った隠蔽**: HTML コメント、`<script>` / `<style>` 内テキスト、`display:none` / `visibility:hidden` / `opacity:0` などの不可視 CSS 要素。Gemini の `web_fetch` ツールの HTML→テキスト変換ロジックは Anthropic WebFetch 以上に詳細が非公開で、変換を通過する可能性は完全には否定できない
 - **LLM チャットテンプレート擬装**: `<|im_start|>`, `</untrusted_content>`, `[INST]`, `Human:` などのマーカーで役割境界の脱出を試みる
 - **間接的指示注入**: "ignore previous instructions", "you are now", "new instructions:" などのパターン
+- **exfiltration 試行**: 取得コンテンツ内の URL や画像タグ経由でのデータ漏洩誘導
 - **URL 改竄**: 要求した URL と異なるオリジンのコンテンツを返し、親に別サイトの内容を誤認させる試み
 - **ツール権限の横滑り**: Gemini 子が `web_fetch` 以外のツール（`run_shell_command`, `read_file` 等）を使おうとするリスク
 - **`[FILTERED]` / `[ESCAPED:]` マーカーの悪用**: sanitize.ts の付与マーカーとの区別を曖昧にする試み
@@ -106,24 +108,51 @@ Gemini 固有:
 ### 前提条件
 
 - Node.js 23.6 以降
-- `gemini` CLI v0.37.x 以降がインストール済みであること
-- Gemini が認証済みであること（Google アカウントログインまたは `GEMINI_API_KEY` 環境変数）
+- `gemini` CLI v0.40.x 以降がインストール済みであること (本設計の PoC は v0.40.0 で実施)
+- Gemini が認証済みであること（Google アカウントログイン (`~/.gemini/oauth_creds.json`) または `GEMINI_API_KEY` 環境変数）
 - `gemini -p` の headless モードで `web_fetch` ツールが利用可能であること
-- Linux 環境では `--sandbox` のバックエンド（Docker / Podman / gVisor のいずれか）が利用可能であること
+- **`--skip-trust` (または `GEMINI_CLI_TRUST_WORKSPACE=true` 環境変数) が必須**。指定しないと workspace trust 未確認の cwd では headless が exit code 55 で停止する
+- Linux 環境で `--sandbox` を有効化する場合、`GEMINI_SANDBOX=docker|podman|runsc|lxc` のいずれかで**バックエンドを明示指定**する必要がある（Linux にデフォルトバックエンドは存在しない）
 
 ### Gemini CLI 固有の重要事項
 
-- **`-o json` の出力ラッパーは固定スキーマ**: `{response, stats, error}` の 3 フィールド構造で、`response` には model のテキスト出力（指示通りなら JSON 文字列）が入る。ユーザー定義 schema を強制する `--json-schema` 相当が CLI に**存在しない**
+- **`-o json` の出力ラッパー実体**: 成功時は `{session_id, response, stats}` の 3 フィールド (PoC 確認済み)。失敗時は `error` フィールドが追加される。`response` には model のテキスト出力（指示通りなら JSON 文字列）が入る。ユーザー定義 schema を強制する `--json-schema` 相当は CLI に**存在しない**
+- **`response` フィールドはサニタイズされない**: PoC 確認済み。model の出力は標準 JSON エスケープ (`\n`, `\t`, `\"` 等) のみ適用された形で `response` に入る。ANSI escape など異常な制御文字を防ぐ目的の `--raw-output` は本スキルでは**不要**
 - **Policy Engine は強力**: `--policy <toml>` で `*` を `deny`、`web_fetch` のみ `allow` にできる。`deny` 決定されたツールは「モデルに見えない」ため、ツール選択の段階から候補に上がらない（context window も節約される）
+- **`--policy` の優先度は実質 Admin tier 相当**: PoC 確認済み。User tier (`~/.gemini/policies/`) で priority 999 (最大) の deny がある状態でも、`--policy` 経由のルールが override する。これは公式 Policy Engine docs の tier 表 (Default=1 / Extension=2 / User=4 / Admin=5) の数学的計算と矛盾するが、実機挙動として確認できた範囲では `--policy` は User tier deny を確実に上書きできる
+- **モデルは deny されたツールの代替に逃げる**: PoC 確認済み。`web_fetch` だけ deny して放置すると Gemini は `google_web_search` などの別ツールで目的を達成しようとする。本スキルの policy では「`* deny` + `web_fetch allow`」で**全ツール抑止 → web_fetch のみ allow** にする必要がある (個別の web 系ツールを羅列して deny するアプローチでは漏れる)
 - **Plan Mode と headless の干渉**: `--approval-mode plan` では `web_fetch` でも常に user approval を要求する仕様で、headless 時の `ask_user` は `deny` として扱われる。よって本スキルでは `--approval-mode default` を使い、Policy で明示的に `allow` する
-- **`web_fetch` のローカル fallback**: Gemini API 失敗時にローカル raw 取得に fallback する。`--sandbox` でファイルシステム隔離を強制し、policy で `read_file` 系ツールを deny することで影響を抑える
-- **GEMINI.md の自動読込**: 隔離 cwd を `.temp/guarded-webfetch-gemini/` に切り替え、その配下に `GEMINI.md` が無いことを保証する
+- **`web_fetch` のローカル fallback**: Gemini API (urlContext) 失敗時にローカル raw 取得に fallback する仕様が公式 docs で明記。PoC でも stderr に `[WebFetchTool] Primary fetch failed, falling back: ...` が観測された。`--sandbox` でファイルシステム隔離を強制し、policy で `read_file` 系ツールを deny することで影響を抑える (sandbox 越しの遮断確認は §13 残課題)
+- **デフォルトモデル**: PoC では `gemini-3-flash-preview` が選ばれた。preview ラベル付きで安定性が変動する可能性があるため、本スキルでは `-m` で明示固定するのが望ましい（具体モデル指定は実装時に決定）
+- **GEMINI.md の自動読込**: 隔離 cwd を `mktemp -d` で空ディレクトリにすることで cwd / project レベルの `GEMINI.md` 読込は塞げる。ただし global `~/.gemini/GEMINI.md` は HOME を whitelist している以上 Gemini 子に読み込まれる (§10 リスクとして記載)
+- **`.env` の自動読込**: Gemini CLI は cwd から上方再帰で `.env` を探す。`mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で切るパスが上位プロジェクトの `.env` を拾う可能性があるため、設計上は隔離スクリプト内で `GEMINI_CLI_NO_DOTENV` 等の抑止フラグの有無を検証するか、`HOME` 配下の `.gemini/.env` を信頼境界として明示する必要がある
+- **Workspace trust スキップ**: `--skip-trust` で trust チェックを bypass する以外に、`GEMINI_CLI_TRUST_WORKSPACE=true` を whitelist に通す方法もある。本スキルは `--skip-trust` を採用する (CLI 引数として明示的、env 経路を最小化)
 
-### 環境変数
+### 環境変数の取り扱い (whitelist 方式)
 
-- `GEMINI_API_KEY`: 認証用。隔離プロセスにも通す必要がある
-- `GEMINI_SANDBOX`: `--sandbox` の代替。CLI 引数を優先する
-- `SANDBOX_MOUNTS`: マウント追加。隔離スクリプトでは原則設定しない
+`quarantine-fetch-gemini.sh` は `env -i` で親 env を全消去した上で、以下のみを明示的に通す。攻撃面を最小化しつつ、API key 認証と Google アカウント (ADC) ログインの両方をサポートするための設計。
+
+| 環境変数                         | 通す理由                                                                                                                     |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `PATH`                           | `gemini` バイナリ・サンドボックスバックエンド (Docker / Podman 等) の実行に必須                                              |
+| `HOME`                           | Gemini CLI が `~/.gemini/` 配下の認証トークンや設定を読むために必要                                                          |
+| `GEMINI_API_KEY`                 | API key 認証時の主要経路                                                                                                     |
+| `GOOGLE_API_KEY`                 | Google AI Studio 経由の代替認証                                                                                              |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ADC (Application Default Credentials) のサービスアカウント JSON パス                                                         |
+| `GOOGLE_GENAI_USE_VERTEXAI`      | Vertex AI 経由のときに必要                                                                                                   |
+| `GOOGLE_CLOUD_PROJECT`           | Vertex AI 経由でのプロジェクト指定                                                                                           |
+| `LANG` / `LC_ALL` / `TZ`         | ロケール・タイムゾーン依存の出力差異を避けるための情報。`-o json` の構造には影響しないが、エラー文言に出る場合があるため許容 |
+
+明示的に**通さない** env の代表例:
+
+- `GEMINI_SANDBOX` — Linux ではバックエンド明示指定 (`docker` / `podman` / `runsc` / `lxc`) が必要だが、本スキルでは sandbox 利用ポリシーをスクリプト側で固定するため、外部からの上書きは許可しない (sandbox を有効化する場合は隔離スクリプト内で `env -i` の引数として `GEMINI_SANDBOX=<バックエンド>` を渡す)
+- `GEMINI_CLI_TRUST_WORKSPACE` — `--skip-trust` を CLI 引数で渡すため env 経由は不要
+- `SANDBOX_MOUNTS` — 不要なマウントを増やす経路を塞ぐため不可
+- `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` などの他社認証情報 — Gemini 子からの漏洩経路を塞ぐ
+- `CLAUDE_*` — 親 Claude 側の状態を Gemini 子に渡さない
+- `GEMINI.md` 自動読込関連の env が将来追加された場合は明示的に弾く
+
+`env -i` で完全置換 (`env -i PATH="$PATH" HOME="$HOME" ... gemini ...`) する形を取り、blacklist 方式のリストアップ漏れリスクを排除する。
 
 ## 5. ディレクトリ構成
 
@@ -135,16 +164,30 @@ guarded-webfetch-gemini/
 │   ├── fetch-output-schema.json
 │   └── quarantine-fetch-policy.toml
 └── scripts/
+    ├── check-node-version.sh
     ├── quarantine-fetch-gemini.sh
     ├── pipe-sanitize-gemini.ts
     └── sanitize.ts
 ```
 
 - `sanitize.ts` は `guarded-webfetch-claude` の実装を re-export して共有する
-- 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-gemini/` を使う
+- `check-node-version.sh` は main agent の事前チェックと `quarantine-fetch-gemini.sh` の冒頭からのサブプロセス呼び出しの両方で使う多層防御 (claude / codex 版と同じ運用)
+- 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-gemini/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する。並列起動 (最大 5 件) と「毎回クリーン」を両立し、`GEMINI.md` 等の前回残留ファイルが次回プロセスに混入しないようにするため
 - `quarantine-fetch-policy.toml` は Gemini Policy Engine 用の TOML ファイル
 
 ## 6. 実行フロー
+
+### ステップ 0: 前提条件チェック (最初に必ず実行)
+
+```bash
+.claude/skills/guarded-webfetch-gemini/scripts/check-node-version.sh
+```
+
+このチェックは SKILL.md のステップ 0 として main agent が Bash ツールで実行する。Node.js 23.6 未満の場合はスクリプトが exit code 3 で終了するので、ユーザーに以下を伝えて中止する。
+
+> この skill は Node.js 23.6 以降を必要とします（TypeScript を追加ツールなしで直接実行するため）。現在の Node バージョンは `<取得したバージョン>` です。`nvm install --lts` 等で新しいバージョンをインストールしてから再度お試しください。
+
+`<取得したバージョン>` には `check-node-version.sh` が stderr に出力する `(現在: vXX.YY.Z)` 部分の値を埋める。`scripts/quarantine-fetch-gemini.sh` も冒頭で同じバージョンチェックを行う。これは多層防御として残しており、main agent が事前チェックを省いた場合でも fetch 実行前に必ず止まる。
 
 ### ステップ 1: URL の特定
 
@@ -162,21 +205,32 @@ guarded-webfetch-gemini/
 
 `quarantine-fetch-gemini.sh` は以下を行う。
 
-1. Node.js と `gemini` CLI の存在確認
-2. `GEMINI_API_KEY` または認証済み状態の確認
-3. `.temp/guarded-webfetch-gemini/` を隔離用 cwd として作成（既存物が無いことの軽い確認）
-4. 隔離 cwd 配下から以下のコマンドを実行
+1. Node.js と `gemini` CLI の存在確認 (`check-node-version.sh` でバージョン強制)
+2. URL の入口検証 (`http://` / `https://`、禁止文字、長さ上限 2048)
+3. `GEMINI_API_KEY` または OAuth 認証済み状態の確認
+4. `mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で隔離用 cwd を作成し、`trap EXIT` で削除
+5. 隔離 cwd 配下から `env -i` + whitelist で以下のコマンドを実行
+
    ```bash
-   gemini -p \
-     --sandbox \
-     --policy "$skill_dir/references/quarantine-fetch-policy.toml" \
-     --approval-mode default \
-     -o json \
-     -m gemini-2.5-flash \
-     "<プロンプト>"
+   env -i \
+     PATH="$PATH" HOME="$HOME" \
+     GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
+     GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-}" \
+     LANG="$LANG" \
+     gemini -p \
+       --skip-trust \
+       --sandbox \
+       --policy "$skill_dir/references/quarantine-fetch-policy.toml" \
+       --approval-mode default \
+       -o json \
+       "<プロンプト>"
    ```
-5. Gemini の `-o json` 出力を `pipe-sanitize-gemini.ts` にパイプ
-6. パイプの最終 stdout を呼び出し元（main Claude）へ返す
+
+   - `--skip-trust`: workspace trust チェックを bypass (PoC 確認: 無いと exit code 55 で停止)
+   - `-m <モデル>`: 安定モデルを明示固定する場合に追加 (デフォルトは `gemini-3-flash-preview` 等の preview ラベル付きモデルが選ばれる可能性があるため、本番運用時は安定版モデルを指定)
+
+6. Gemini の `-o json` 出力を `pipe-sanitize-gemini.ts` にパイプ
+7. パイプの最終 stdout を呼び出し元（main Claude）へ返す
 
 Gemini 子に与えるプロンプトでは次を要求する。
 
@@ -201,29 +255,43 @@ Gemini 子に与えるプロンプトでは次を要求する。
 
 1. CLI 引数の URL を検証（`http://` または `https://` のみ許可）
 2. stdin から Gemini の `-o json` ラッパー全体を読む
-3. ラッパーを JSON parse し、`response`（string）、`stats`（object）、`error`（optional）を取り出す
+3. ラッパーを JSON parse し、`session_id`（string）、`response`（string）、`stats`（object）、`error`（optional）を取り出す
 4. `error` フィールドが存在すれば fail-closed で終了
-5. `response` を JSON として再度 parse し、`url`, `raw_text`, `fetch_success`, `error_message` を検証
-6. 余計なテキストが前後に付着している場合のフォールバックとして、最初の `{` から最後の `}` までを抽出して再 parse を試みる（プロンプト崩しを 1 段階だけリカバー）。それでも失敗すれば fail-closed
-7. `fetch_success === false` なら fail-closed
-8. CLI 引数の URL と取得 URL のオリジンを比較し、不一致なら fail-closed
-9. `sanitize(requestedUrl, fetchedUrl, rawText)` を実行し、`SanitizedDoc` JSON を stdout に出力
+5. **`stats.tools.byName.web_fetch.count` を検証**: 0 なら `web_fetch` が一度も呼ばれていない (User policy deny / モデル判断による回避 / プロンプト不遵守) と判断し fail-closed。`success > 0` であることも確認
+6. `response` を JSON として再度 parse し、`url`, `raw_text`, `fetch_success`, `error_message` を検証
+7. 余計なテキストが前後に付着している場合のフォールバックとして、最初の `{` から最後の `}` までを抽出して再 parse を試みる（プロンプト崩しを 1 段階だけリカバー）。それでも失敗すれば fail-closed
+8. `fetch_success === false` なら fail-closed
+9. CLI 引数の URL と取得 URL のオリジンを比較し、不一致なら fail-closed
+10. `sanitize(requestedUrl, fetchedUrl, rawText)` を実行し、`SanitizedDoc` JSON を stdout に出力
+
+PoC で確認した重要事実:
+
+- `response` 内の JSON 文字列は標準 JSON エスケープ (`\n`, `\t`, `\"` 等) のみ。`JSON.parse` で素直に元データに戻る
+- `--raw-output` は不要（むしろ ANSI escape 等の許容で逆効果）
+- `stats.tools.byName.web_fetch.count` は web_fetch 抑止の有無を検出する**唯一**の機械可読シグナル (stderr の `Tool "web_fetch" not found.` も参考になるが文字列ベースで脆い)
 
 ### ステップ 4: 安全性判定
 
 親 Claude は `flags` に基づき安全性判定を行う。
 
-| 条件                                                                                                  | 判定       | 振る舞い                |
-| ----------------------------------------------------------------------------------------------------- | ---------- | ----------------------- |
-| `suspicious_patterns` が空、`had_invisible_chars` が `false`、`requested_url` と `fetched_url` が一致 | 安全       | 通常応答                |
-| `requested_url` と `fetched_url` が異なるが同一オリジン                                               | 注意       | 両 URL を通知           |
-| `had_invisible_chars` が `true` で `suspicious_patterns` が空                                         | 注意       | 変形通知付きで応答      |
-| `suspicious_patterns` が 1 件以上                                                                     | 要確認     | actionable な出力を保留 |
-| `truncated` が `true`                                                                                 | 情報不完全 | 切り詰めを通知          |
+**評価順序**: 以下の表は上から順に評価し、**最初にマッチした行の判定を採用する**。`suspicious_patterns` が非空なら即座に「要確認」が確定し、URL 差異や `truncated` の状態に関わらずユーザー確認を優先する。`had_invisible_chars` 単独の「注意」判定は `suspicious_patterns` が空のときにのみ意味を持つため、複合条件として独立行を持たせない。
+
+| 条件                                                        | 判定       | 振る舞い                                                                                    |
+| ----------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------- |
+| `suspicious_patterns` が 1 カテゴリ以上検出                 | 要確認     | ユーザーに確認を取るまで actionable な出力 (URL / コマンド / コード) を生成しない           |
+| `truncated` が `true`                                       | 情報不完全 | テキストが切り詰められた旨をユーザーに通知                                                  |
+| `had_invisible_chars` が `true`、`suspicious_patterns` が空 | 注意       | 応答に「不可視文字の除去または Unicode 互換正規化によりテキストが変形された」旨の通知を付与 |
+| 上記いずれにも該当しない                                    | 安全       | そのまま応答を生成                                                                          |
+
+**URL 差異の付加注釈**: `requested_url` と `fetched_url` が異なる場合 (同一オリジン内のパス差異・HTTPS 昇格・www 変動) は、上記判定にかかわらず応答に「要求した URL とは異なるページのコンテンツが取得された」旨を付加し、両 URL をユーザーに提示する。許容範囲外のオリジン遷移は `pipe-sanitize-gemini.ts` が exit code 1 で fail-closed するため、main agent がこの判定軸で考慮するのは「許容範囲内の遷移が起きたかどうか」のみ。
+
+なお `fetched_url` は Gemini 子の自己申告であり、Gemini が実際にその URL を fetch した完全保証ではない点に留意する (Codex 版と同じ性質)。
 
 ## 7. サニタイザの処理層
 
 `sanitize.ts` は `guarded-webfetch-claude` と同じ実装を共有する。対象は Gemini 子が返した本文テキストであり、以下の 2 層に特化する。
+
+`had_invisible_chars` フラグの正確な意味、`[FILTERED:<カテゴリ>]` / `[ESCAPED:]` の再帰エスケープ順序、grapheme 境界より code unit 境界を優先する根拠 (combining mark スパムによる NFKC / regex の処理コスト跳ね上げ対策) など、共有実装の詳細は `guarded-webfetch-claude/references/design-plan.md` §7 を参照。
 
 ### Unicode 層
 
@@ -269,12 +337,17 @@ Gemini 子に与えるプロンプトでは次を要求する。
 
 ```toml
 # 既定: 全ツール deny。deny は「モデルに見えない」ためツール選択候補から除外される。
+# google_web_search や read_file 等の Gemini 標準ツールがモデル inventory に残ると、
+# web_fetch deny 時にそれらに逃げて「別経路で目的達成」される (PoC で google_web_search の
+# 迂回を確認済み)。よって本ルールは必須。
 [[rule]]
 toolName = "*"
 decision = "deny"
 priority = 0
 
-# web_fetch のみ明示 allow。
+# web_fetch のみ明示 allow。priority を 100 にすることで User tier に存在する
+# 一般的な deny rule (priority 0-999) より基本的に優先される。--policy 経由のルールは
+# PoC で User tier max priority (999) ですら override できることを確認済み。
 [[rule]]
 toolName = "web_fetch"
 decision = "allow"
@@ -290,10 +363,39 @@ priority = 200
 
 注意:
 
-- Policy Engine の Workspace tier (`$WORKSPACE_ROOT/.gemini/policies/*.toml`) は現時点で disabled なので、`--policy` フラグで明示指定する
-- User tier (`~/.gemini/policies/*.toml`) は本スキルでは触らない（実行ユーザーのカスタム policy を尊重）。`--policy` で渡す本スキル固有 policy は User より下位の Default に近い扱いになるため、ユーザー側で意図的に `web_fetch` を deny している場合は本スキルの allow に勝つ。本スキルが正しく動かない場合はユーザーに確認する
+- Policy Engine の tier 構造 (公式 docs) は Default(1) / Extension(2) / User(4) / Admin(5) で、final priority = `tier_base + (toml_priority/1000)`
+- 公式 docs は `--policy` がどの tier に load されるかを明示していないが、PoC 結果から本スキルの `--policy` 経由ルールは User tier max priority (4.999) すら override する強度を持つことが確認できた (Admin tier 相当の挙動)
+- `--admin-policy` も CLI に存在するが、`--policy` で十分なため本スキルでは使用しない
+- User tier (`~/.gemini/policies/*.toml`) は本スキルでは触らない（実行ユーザーのカスタム policy を尊重）
+- 万が一、本スキルの `--policy` でも override できないユーザー設定が将来現れた場合は、`stats.tools.byName.web_fetch.count === 0` で fail-closed することで安全側に倒す
 
-### 出力スキーマ（`fetch-output-schema.json`）
+### Gemini ラッパー (`-o json` の上位 JSON) 構造
+
+PoC で確認した実体スキーマ:
+
+```json
+{
+  "session_id": "<uuid>",
+  "response": "<モデル出力テキスト (本スキルでは内側 JSON 文字列)>",
+  "stats": {
+    "models": { "<model name>": { "api": {...}, "tokens": {...}, "roles": {...} } },
+    "tools": {
+      "totalCalls": 1,
+      "totalSuccess": 1,
+      "totalFail": 0,
+      "byName": {
+        "web_fetch": { "count": 1, "success": 1, "fail": 0, "durationMs": 3743, ... }
+      }
+    },
+    "files": { "totalLinesAdded": 0, "totalLinesRemoved": 0 }
+  },
+  "error": "<失敗時のみ>"
+}
+```
+
+`pipe-sanitize-gemini.ts` は `error` の不在 + `stats.tools.byName.web_fetch.success >= 1` を必須条件として検証する。
+
+### 内側 JSON スキーマ（`fetch-output-schema.json`）
 
 CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` のバリデーション基準として保持する。
 
@@ -313,11 +415,15 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` のバリ�
 
 ### `quarantine-fetch-gemini.sh`
 
-このスクリプトは認証情報を最低限通しつつ、それ以外の環境変数をスクラブする。
+このスクリプトは認証情報を whitelist で最低限通しつつ、それ以外の環境変数を `env -i` で完全に消去する。
 
-- **狙い**: `GEMINI_API_KEY` のみを許可し、ホスト側の `GEMINI_*` その他設定が隔離プロセスに漏れないようにする
+- **env scrub**: §4「環境変数の取り扱い」で列挙した whitelist のみを `env -i` 経由で渡す。`GEMINI_*` の未知の設定や他社認証情報・親 Claude の env が隔離プロセスに漏れないようにする
 - **`--sandbox`**: 利用可能なバックエンドを CLI に自動選択させる。明示固定は OS 依存リスクが高いため避ける
-- **cwd 切替**: `(cd "$quarantine_cwd" && gemini ...)` のサブシェルで実行する。隔離 cwd 直下に `GEMINI.md` を置かないことを保証する
+- **cwd 切替**: `(cd "$quarantine_cwd" && env -i ... gemini ...)` のサブシェルで実行する。`$quarantine_cwd` は `mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で実行ごとに生成し、`trap EXIT` で削除する。隔離 cwd 直下に `GEMINI.md` を置かないことを保証する
+- **URL の入口検証**: claude / codex 版と同様、`http://` / `https://` プレフィクス、バッククォート / `$()`、制御文字、長さ上限 (2048 文字) を入口で検証し、不正な URL は `gemini` 起動前に exit code 2 で弾く (API コスト発生前のハード制約)
+- **Policy tier 由来の deny 検出**: 本スキルの `--policy` は User tier max priority (999) すら override できることを PoC で確認したため、通常運用ではユーザー側 policy による web_fetch deny は発生しない。万が一それでも web_fetch が呼ばれなかった場合の検出は、`stats.tools.byName.web_fetch.count === 0` で判定し fail-closed する (機械可読シグナル)。stderr 文字列の `Tool "web_fetch" not found.` も補助的に確認可能だが、文字列マッチに依存しない設計を優先する
+- **レートリミット時のリトライ**: Gemini CLI v0.40 は内部で自動リトライを実行する (PoC で `Attempt 1 failed: You have exhausted your capacity on this model. Your quota will reset after Xs.. Retrying after Yms...` を観測)。本スキルの追加リトライは原則不要。最終的に CLI が諦めた場合のみ exit code 1 で終了し main agent に通知する。stderr に `exhausted your capacity` / `rate.?limit` / `429` / `quota` が観測された場合のメッセージ整形は main agent 側で行う
+- **無害なノイズ stderr の例**: `Warning: 256-color support not detected` / `Ripgrep is not available. Falling back to GrepTool.` などは Gemini CLI の通常出力。stderr マッチで誤検出しないよう、Policy deny / レートリミットの判定は限定的なキーワードに絞る
 
 ### `pipe-sanitize-gemini.ts`
 
@@ -340,34 +446,59 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` のバリ�
 7. **ツール横滑り**: prompt で「ファイルを読め」と指示しても policy が `read_file` を deny し、応答に raw_text が無いことを検出してエラー終了する
 8. **巨大テキスト**: 50,000 文字超で `truncated: true` が立つ
 9. **GEMINI.md 干渉**: 隔離 cwd 配下に `GEMINI.md` が無い前提が崩れた場合に検出（`ls` チェック）
+10. **環境チェック**: Node.js 23.6 未満の環境 → 処理を開始せず、`check-node-version.sh` が exit code 3 で終了する
+11. **Policy tier deny の検出**: ユーザー側 `~/.gemini/policies/` で `web_fetch` を deny した状態で実行 → stderr マッチでサイレント失敗を検出し、専用 exit code (4) で終了。main agent はユーザーに User tier policy の確認を案内する
+12. **`[FILTERED]` / `[ESCAPED:]` 偽装攻撃**: sanitize.ts のテストで `[FILTERED]` / `[ESCAPED:FILTERED]` がそれぞれ `[ESCAPED:FILTERED]` / `[ESCAPED:ESCAPED:FILTERED]` に再帰エスケープされることを確認 (claude 版と共有のため、実体テストは guarded-webfetch-claude 側で実施)
+13. **並列処理の部分失敗**: 5 件中 2 件がいずれかの段階で失敗 → 成功した 3 件で応答が生成され、失敗した 2 件がユーザーに報告される
+14. **`pipe-sanitize-gemini.ts` のクラッシュ耐性**: 不正な UTF-8 バイト列 (TextDecoder が `U+FFFD` に置換) や極端に長い行を含むテキストを入力した場合 → exit code が非 0 になり、main agent は該当 URL の処理を中止
+15. **レートリミット**: stderr に `quota` / `rate.?limit` が含まれた場合、10 秒待機後に 1 回再試行される。再試行しても失敗するときは exit code 1 で終了
 
-テストは `pipe-sanitize-gemini.ts` の in-source testing と、`quarantine-fetch-gemini.sh` の手動 E2E で行う。
+テストは `pipe-sanitize-gemini.ts` の in-source testing (Vitest) と、`quarantine-fetch-gemini.sh` の手動 E2E で行う。
 
 ## 10. 設計上の割り切り
 
 - **JSON schema 強制が無い**: Gemini CLI には `--json-schema` 相当が無いため、出力形式の保証はプロンプト指示と受信側バリデーションに依存する。最大の弱点であり、Claude 版より「形式崩し」に弱い
 - **Plan Mode は使わない**: Plan Mode + headless では `web_fetch` が deny される。よって `default` モード + Policy で明示 allow にする
-- **GEMINI.md の自動読込は cwd 切替で回避する**: ユーザー設定 (`~/.gemini/...`) や User tier policy までは触らないため、ユーザー環境次第で挙動が揺れる可能性は残る
-- **API 認証情報の通過**: `GEMINI_API_KEY` を完全 scrub すると認証が通らない。安全性とのトレードオフで、API キー 1 つだけ許可する
-- **ローカル fallback の影響**: Gemini API の `urlContext` 失敗時にローカルマシンから raw 取得する仕様は完全には抑え込めない。`--sandbox` と policy で間接的に防ぐ
+- **GEMINI.md の自動読込は cwd 切替で部分的にしか回避できない**: cwd / project レベルの `GEMINI.md` は `mktemp -d` の空ディレクトリ運用で塞げるが、global `~/.gemini/GEMINI.md` は HOME を whitelist している以上 Gemini 子プロセスに読み込まれる。ユーザーが global GEMINI.md に意図せず外部由来の指示を保存していた場合、それが隔離プロセスのシステム指示に注入される経路が残る (公式に GEMINI.md 自動読込を抑止する CLI フラグ / env は v0.40 時点で確認できていない、§13 残課題)
+- **`.env` の上方再帰読込**: Gemini CLI は cwd から上方再帰で `.env` を探す。`.temp/guarded-webfetch-gemini/run-XXXXXXXX/` に cwd を切り替えても、上位ディレクトリ ($PWD / プロジェクトルート / $HOME) の `.env` がそのまま拾われる可能性がある。`HOME` を whitelist で渡しているため `~/.gemini/.env` も読まれうる。`.env` には認証情報が入っている前提で、本スキルではこの読込経路をブロックしない (§13 残課題: `GEMINI_CLI_NO_DOTENV` 等の抑止フラグが将来追加されたら採用)
+- **Workspace trust は `--skip-trust` で bypass する**: trust チェックをスキップする以上、`gemini -p` が cwd 内のファイルを誤って実行する経路を CLI 側で抑止する保険が外れる。本スキルでは `mktemp -d` で空ディレクトリの cwd に切り替えていることと policy の `* deny` でこのリスクを抑える
+- **認証情報の通過は whitelist 方式**: §4 で列挙した `GEMINI_API_KEY` / `GOOGLE_APPLICATION_CREDENTIALS` 等のみを `env -i` 経由で通す。安全性と認証経路の両立のためのトレードオフ
+- **ローカル fallback の挙動 (PoC E で検証済み)**: Gemini API の `urlContext` 失敗時にローカルマシンから raw 取得する仕様は実在する。本スキルは `--sandbox docker` でこれを抑え込む設計で、PoC 結果は以下の通り:
+  - `localhost` / `127.0.0.1` / `0.0.0.0` / `[::1]` (IPv6 loopback): Gemini WebFetchTool 自体に「private or local host」スキップ機構があり、sandbox の有無に依らずスキップされる (`[WebFetchTool] Skipped private or local host: ...`)
+  - sandbox 無しでの fallback: host のディレクトリ全体に到達可能 (PoC E-1 で host:8080 listener の dir listing から関連ファイル群を取得されることを確認)
+  - sandbox 有り (`--sandbox docker`) の fallback: container 内に閉じ込められ、host へは到達しない (PoC E-2 で container 内 ECONNREFUSED を確認)
+  - **`host.docker.internal`**: WebFetchTool のスキップ対象外。`--sandbox docker` 起動時に `--add-host=host.docker.internal:host-gateway` 相当が付与されるため、container から host gateway 経由で host サービスに到達してしまう (PoC E-4 で確認、host listener にアクセスログが残る)
+  - `file://`: WebFetchTool 自体が "Only http and https are supported" で拒否 (PoC E-3 で確認)
+- **`host.docker.internal` 経路は本スキル側で URL 入口検証で塞ぐ**: PoC E-4 の漏洩経路を防ぐため、`quarantine-fetch-gemini.sh` の入口検証および `pipe-sanitize-gemini.ts` の `validateCliUrl` で次のホスト名・IP 範囲を deny する:
+  - ホスト名: `localhost`, `host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`, `gateway.containers.internal`, `host-gateway`
+  - IP リテラル: `127.0.0.0/8`, `0.0.0.0`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (link-local), `::1`, `fc00::/7`, `fe80::/10`
+  - これは「ホスト名で書かれた URL が DNS で private IP に解決される」攻撃 (DNS rebinding 等) までは防げない (best-effort)。完全防御にはならないが、典型的な漏洩パターンは塞ぐ
+- **本スキル運用は `--sandbox docker` (または同等の OS レベル sandbox) を必須要件とする**: sandbox 無しでの fallback は host のローカルサービス・ファイルへの到達経路が広いため、運用の前提条件として `GEMINI_SANDBOX` の指定を必須とする (隔離スクリプト内で固定)
+- **隔離プロセスの stderr が main agent に流れる経路は残る**: `quarantine-fetch-gemini.sh` は失敗時に Gemini 子の stderr を親に流す。通常は CLI 自体のエラー文だが、ランタイム仕様変更や巧妙な入力で stderr 側に攻撃ペイロードが現れる可能性は完全には排除できない (claude 版と同じ性質)
+- **依存ゼロ**: Node 標準のみで完結させ、配布性を最大化する (`pipe-sanitize-gemini.ts` も含めて外部パッケージなし)
+- **フォールバックなし**: Node 23.6 未満は fail-fast。複数の実行経路を持つと保守性が落ちる
+- **URL のシェルインジェクション防止は多層**: main agent → `quarantine-fetch-gemini.sh` の呼び出しで URL を `'...'` で囲むのは main agent のソフト判断。`quarantine-fetch-gemini.sh` の入口でスキーム検証 (`http://` / `https://` のみ) ・禁止文字検証 (バッククォート / `$()` / 制御文字) ・長さ上限 (2048 文字) を行い、不正な URL は API コスト発生前にハード制約として弾く。`pipe-sanitize-gemini.ts` 側の `validateCliUrl` も深層防御として残す
+- **ローカルファイルの出所追跡は不可**: 外部由来のファイルがローカル保存される経路を自動追跡する仕組みはなく、main agent のソフト判断に依存する
+- **LLM マーカーの過検出**: `<s>` / `</s>` は Llama BOS/EOS と HTML strikethrough の衝突、`you are now ` / `new instructions:` は通常英文との衝突がありうる。「過検出寄りで fail-closed、ユーザー確認で運用補完」の方針を採用 (claude 版と共通)
+- **パターンリストの陳腐化**: LLM マーカーのパターンは新しい攻撃手法の出現により陳腐化する。`guarded-webfetch-claude/references/injection_patterns.md` を運用更新する形で対応 (sanitize.ts 共有のため、パターンリストも共有)
 - **完全防御ではない**: 要確認時に親 Claude が出力を抑制する運用が前提
 
 ## 11. 既存スキルとの比較
 
-| 観点                     | guarded-webfetch-claude                | guarded-webfetch-codex                                   | guarded-webfetch-gemini (本スキル設計)             |
-| ------------------------ | -------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
-| 子コマンド               | `claude -p`                            | `codex --search exec`                                    | `gemini -p`                                        |
-| 出力形式                 | `--output-format json`                 | `--json` JSONL                                           | `-o json` 固定ラッパー                             |
-| 出力スキーマ強制         | あり (`--json-schema`)                 | あり (`--output-schema`)                                 | **無し**（プロンプト指示 + 受信側検証）            |
-| ツール固定               | `--allowedTools "WebFetch"`            | プロンプト + sandbox（CLI 直の固定なし）                 | Policy Engine TOML で `*` deny + `web_fetch` allow |
-| Sandbox                  | env 変数による cwd 副作用              | `--sandbox read-only` / `workspace-write` フォールバック | `--sandbox` (Docker / Seatbelt / gVisor)           |
-| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等 | プロンプトと sandbox で抑制                              | Policy で `mcp_*` deny                             |
-| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`     | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に            |
-| Max turns                | `--max-turns 3`                        | デフォルトの試行回数                                     | （CLI 直の制限が見えていない、要追加調査）         |
-| ローカル fallback リスク | 無し                                   | 無し                                                     | あり（`web_fetch` の URL API 失敗時）              |
-| 認証                     | Anthropic API key                      | Codex ログイン                                           | `GEMINI_API_KEY` または Google アカウント          |
-| ツール権限の強さ         | ハード                                 | 準ハード                                                 | ハード（Policy Engine による強制）                 |
-| 出力スキーマ強度         | ハード                                 | ハード                                                   | ソフト                                             |
+| 観点                     | guarded-webfetch-claude                                         | guarded-webfetch-codex                                   | guarded-webfetch-gemini (本スキル設計)             |
+| ------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| 子コマンド               | `claude -p`                                                     | `codex --search exec`                                    | `gemini -p`                                        |
+| 出力形式                 | `--output-format json`                                          | `--json` JSONL                                           | `-o json` 固定ラッパー                             |
+| 出力スキーマ強制         | あり (`--json-schema`)                                          | あり (`--output-schema`)                                 | **無し**（プロンプト指示 + 受信側検証）            |
+| ツール固定               | `--allowedTools "WebFetch"`                                     | プロンプト + sandbox（CLI 直の固定なし）                 | Policy Engine TOML で `*` deny + `web_fetch` allow |
+| Sandbox                  | OS レベル sandbox なし (env + permission deny + cwd 切替の多層) | `--sandbox read-only` / `workspace-write` フォールバック | `--sandbox` (Docker / Seatbelt / gVisor)           |
+| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                          | プロンプトと sandbox で抑制                              | Policy で `mcp_*` deny                             |
+| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に            |
+| Max turns                | `--max-turns 3`                                                 | デフォルトの試行回数                                     | （CLI 直の制限が見えていない、要追加調査）         |
+| ローカル fallback リスク | 無し                                                            | 無し                                                     | あり（`web_fetch` の URL API 失敗時）              |
+| 認証                     | Anthropic API key                                               | Codex ログイン                                           | `GEMINI_API_KEY` または Google アカウント          |
+| ツール権限の強さ         | ハード                                                          | 準ハード                                                 | ハード（Policy Engine による強制）                 |
+| 出力スキーマ強度         | ハード                                                          | ハード                                                   | ソフト                                             |
 
 総評:
 
@@ -385,25 +516,36 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` のバリ�
 
 ## 13. 残課題と未確定事項
 
-実装着手前に追加で確認・検証したい項目。
+調査・検証は Gemini CLI v0.40.0 / Google アカウント OAuth ログイン環境で実施。解決済み項目は §4 / §6 / §8 / §10 等の関連セクションに反映済みのため本セクションには記載しない。未解決のみを重要度 3 段階で整理し、実装着手の判断軸を明確にする。
 
-- [ ] Gemini CLI に `--max-turns` 相当のフラグがあるか（無ければプロンプトで 1 ターン完結を強制する）
-- [ ] `GEMINI.md` 自動読込を確実に無効化するフラグ（または env 変数）の有無
-- [ ] `--sandbox` の Linux デフォルトバックエンドが Docker か gVisor か（実環境確認）
-- [ ] `web_fetch` のローカル fallback 時、`--sandbox` 越しでファイルアクセスが本当に遮断されるか
-- [ ] `-o json` の `response` フィールドに JSON 文字列を含める際、Gemini 側の「出力サニタイゼーション」で改変されないか（`--raw-output` を使う必要があるか。ただし `--raw-output` は警告通り危険な側面もある）
-- [ ] 並列実行時のレートリミット挙動と再試行戦略
-- [ ] `--policy` の User tier ルールがユーザー環境にある場合の優先順位確認（`web_fetch` が User tier で deny されているケース）
+### A. 実装ブロッカー (本スキルの存在意義に直結。実装着手前に PoC 必須)
+
+すべて解決済み。PoC E (sandbox 越しのローカル fallback 遮断検証、E-1〜E-4) で得た事実は §10 に反映済み。実装着手の前提条件は満たした。
+
+### B. 実装と並行で確認 (運用品質に影響、致命的ではない)
+
+- [ ] **private host / private IP の URL 入口 deny 実装** — PoC E-4 で `host.docker.internal` が sandbox 漏洩経路になることが判明したため、§10 で列挙したホスト名・IP 範囲を `quarantine-fetch-gemini.sh` の URL 入口検証および `pipe-sanitize-gemini.ts` の `validateCliUrl` で deny する実装を追加する。既存の URL バリデーション (スキーム / 禁止文字 / 長さ) と同じレイヤで完結させる
+- [ ] **GEMINI.md 自動読込を抑止する公式手段** — global `~/.gemini/GEMINI.md` の読込抑止フラグ / env / `settings.json` キーが v0.40 にあるか調査。見つからなければ §10 の割り切りとして恒久化
+- [ ] **`.env` 上方再帰読込の抑止** — `GEMINI_CLI_NO_DOTENV` 等の env / フラグの有無を確認。見つからなければ §10 の割り切りとして恒久化
+- [ ] **デフォルトモデル固定** — preview ラベルなしの安定モデル名を `-m` で明示固定する。現状の自動選択 `gemini-3-flash-preview` は preview であり、品質・互換性・料金が変動しうる
+
+### C. 継続観察 (将来のバージョン変動リスク・コスト試算)
+
+- [ ] **`--policy` が Admin tier 相当に振る舞う根拠** — 公式 docs の tier 表 (Default=1 / Extension=2 / User=4 / Admin=5) からは User tier max (4.999) を上書きできる説明がつかない。CLI ソース読みかさらなる PoC で根拠を確認し、将来のバージョンアップで挙動が変わるリスクに備える
+- [ ] **トークン消費見積もりとレートリミット試算** — "pong" 1 語で input 7,784 tokens、web_fetch 1 回で 17K+ tokens。並列 5 件運用時のコスト試算、OAuth 無料枠 / API key 有料枠でのレートリミット観察を継続
+- [ ] **DNS rebinding への対応** — §10 の private host deny は名前ベースのフィルタで、ホスト名が DNS で private IP に解決されるケースは防げない。Gemini CLI の WebFetchTool 自身もホスト名解決後の IP までチェックしているとは限らないため、必要に応じて将来 `pipe-sanitize-gemini.ts` 側で DNS 解決後の IP を二段検証するなどの強化を検討
 
 ## 14. 参考資料
 
 - [`guarded-webfetch-claude/references/design-plan.md`](../../guarded-webfetch-claude/references/design-plan.md)
 - [`guarded-webfetch-codex/references/design-plan.md`](../../guarded-webfetch-codex/references/design-plan.md)
-- Gemini CLI 公式ドキュメント
-  - <https://geminicli.com/docs/cli/headless>
-  - <https://geminicli.com/docs/core/policy-engine>
-  - <https://geminicli.com/docs/cli/sandbox>
-  - <https://geminicli.com/docs/tools/web-fetch>
-  - <https://geminicli.com/docs/reference/commands/>
+- Gemini CLI 公式リポジトリ — <https://github.com/google-gemini/gemini-cli>
+- Gemini CLI 公式ドキュメント (リポジトリ owner 管理)
+  - Headless mode — <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/headless.md>
+  - Policy Engine — <https://github.com/google-gemini/gemini-cli/blob/main/docs/core/policy-engine.md>
+  - Sandbox — <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/sandbox.md>
+  - `web_fetch` tool — <https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/web-fetch.md>
+  - Commands reference — <https://github.com/google-gemini/gemini-cli/tree/main/docs/reference/commands>
+  - 各ファイルパスはリポジトリの実態に合わせて要再確認 (リポジトリ構造変更時の追随が必要)
 - AWS "Defending LLM applications against Unicode character smuggling"
 - Promptfoo "The Invisible Threat: Zero-Width Unicode Characters"
