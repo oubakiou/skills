@@ -500,22 +500,27 @@ const readSearchEnvelope = async (): Promise<{
   return extractSearchResults(parseJson(raw))
 }
 
-/** CLI 引数のクエリを取り出して長さ上限を検証する。未指定なら undefined を返す */
-const getValidatedCliQuery = (): string | undefined => {
+/** CLI 引数のクエリを取り出して必須・長さ上限を検証する */
+const getValidatedCliQuery = (): string => {
   const [cliQuery] = process.argv.slice(2)
-  if (cliQuery && cliQuery.length > 1000) {
+  if (!cliQuery) {
+    throw new Error(
+      'CLI 引数として検索クエリが必須です（隔離プロセス出力の query を素通しさせない fail-closed 設計）'
+    )
+  }
+  if (cliQuery.length > 1000) {
     throw new Error(`クエリが長すぎます (${cliQuery.length} 文字, 上限 1000)`)
   }
   return cliQuery
 }
 
 const runCli = async (): Promise<void> => {
-  const { query, results } = await readSearchEnvelope()
-  // CLI引数のクエリは出力の query フィールドをユーザーの意図と一致させるためのもの
-  // 注意: 隔離プロセスが実際に実行した検索クエリを検証する手段はない（既知の限界）
+  // CLI 引数のクエリは出力の query フィールドをユーザーの意図と一致させるためのもの。
+  // 隔離プロセスが実際に実行した検索クエリを検証する手段はない（既知の限界）が、
+  // 出力に流す query は必ず main agent 由来の CLI 引数に固定する
   const cliQuery = getValidatedCliQuery()
-  const effectiveQuery = cliQuery || query
-  const output = sanitizeSearchResults(effectiveQuery, results)
+  const { results } = await readSearchEnvelope()
+  const output = sanitizeSearchResults(cliQuery, results)
   writeJsonOutput(output)
 }
 

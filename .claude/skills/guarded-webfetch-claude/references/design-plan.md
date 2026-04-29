@@ -163,9 +163,9 @@ guarded-webfetch-claude/
 
 このチェックは SKILL.md のステップ 0 として main agent が Bash ツールで実行する。23.6 未満の場合はスクリプトが exit code 3 で終了するので、ユーザーに以下を伝えて中止:
 
-> この skill は Node.js 23.6 以降を必要とします（TypeScript を追加ツールなしで直接実行するため）。現在の Node バージョンは `<取得したバージョン>` です。nvm 等で新しいバージョンをインストールしてから再度お試しください。
+> この skill は Node.js 23.6 以降を必要とします（TypeScript を追加ツールなしで直接実行するため）。現在の Node バージョンは `<取得したバージョン>` です。`nvm install --lts` 等で新しいバージョンをインストールしてから再度お試しください。
 
-`scripts/quarantine-fetch.sh` も冒頭で同じバージョンチェックを行う。これは多層防御として残しており、main agent が事前チェックを省いた場合でも fetch 実行前に必ず止まる。
+`<取得したバージョン>` には `check-node-version.sh` が stderr に出力する `(現在: vXX.YY.Z)` 部分の値を埋める。`scripts/quarantine-fetch.sh` も冒頭で同じバージョンチェックを行う。これは多層防御として残しており、main agent が事前チェックを省いた場合でも fetch 実行前に必ず止まる。
 
 **ステップ 1: 対象 URL の特定**
 
