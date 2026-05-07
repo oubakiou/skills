@@ -85,10 +85,10 @@ source local_setup.sh
 
 ```bash
 # 全テスト実行
-npx vitest run
+vp test
 
 # 特定スキルのテスト
-npx vitest run .claude/skills/guarded-webfetch-gemini/scripts/pipe-sanitize-gemini.ts
+vp test .claude/skills/guarded-webfetch-gemini/scripts/pipe-sanitize-gemini.ts
 ```
 
 ### lint / フォーマット
