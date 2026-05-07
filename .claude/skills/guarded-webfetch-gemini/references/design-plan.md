@@ -575,15 +575,16 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
   - sandbox 有り (`--sandbox docker`) の fallback: container 内に閉じ込められ、host へは到達しない (PoC E-2 で container 内 ECONNREFUSED を確認)
   - **`host.docker.internal`**: WebFetchTool のスキップ対象外。`--sandbox docker` 起動時に `--add-host=host.docker.internal:host-gateway` 相当が付与されるため、container から host gateway 経由で host サービスに到達してしまう (PoC E-4 で確認、host listener にアクセスログが残る)
   - `file://`: WebFetchTool 自体が "Only http and https are supported" で拒否 (PoC E-3 で確認)
-- **`host.docker.internal` 経路は本スキル側で URL 入口検証で塞ぐ**: PoC E-4 の漏洩経路を防ぐため、`quarantine-fetch-gemini.sh` の入口検証および `pipe-sanitize-gemini.ts` の `validateCliUrl` で次のホスト名・IP 範囲を deny する:
-  - ホスト名: `localhost`, `host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`, `gateway.containers.internal`, `host-gateway`
-  - IP リテラル: `127.0.0.0/8`, `0.0.0.0`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (link-local), `::1`, `fc00::/7`, `fe80::/10`
+- **`host.docker.internal` 経路は本スキル側で URL 入口検証で塞ぐ**: PoC E-4 の漏洩経路を防ぐため、`pipe-sanitize-gemini.ts` の `validateCliUrl` で次のホスト名・IP 範囲を完全 deny する。`quarantine-fetch-gemini.sh` 側は典型ケース (`localhost` 等の代表ホスト名・IPv4 private 範囲・IPv6 `::1`) のみを早期に弾く簡易チェックに留め、完全な検証 (末尾ドット, IPv4-mapped IPv6, IPv6 ULA / link-local, user info 込みのホスト抽出など) は TS 側に集約する:
+  - ホスト名: `localhost`, `localhost.localdomain`, `host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`, `gateway.containers.internal`, `host-gateway` および末尾ドット表記
+  - IP リテラル: `127.0.0.0/8`, `0.0.0.0`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (link-local), `::1`, `fc00::/7`, `fe80::/10`, IPv4-mapped IPv6 (`::ffff:x.x.x.x` 混在表記および `::ffff:7f00:1` 完全展開形)
+  - 二層化の割り切り: shell の簡易チェックを TS と完全一致させると IPv4-mapped IPv6 の hex 進数変換等の二重実装になり保守負担が増える。shell では「明らかな private host を API コスト発生前に弾く」までを担当し、完全な fail-closed は TS 側で行う設計とした
   - これは「ホスト名で書かれた URL が DNS で private IP に解決される」攻撃 (DNS rebinding 等) までは防げない (best-effort)。完全防御にはならないが、典型的な漏洩パターンは塞ぐ
 - **sandbox は runsc 利用可能時のみ有効化する**: runsc が利用可能な環境では `GEMINI_SANDBOX=runsc` + `--sandbox` で OS レベル隔離を適用する。利用不可の場合は sandbox なしで続行する。sandbox なし時のローカル fallback リスクは、URL 入口検証の private host/IP deny (§10「`host.docker.internal` 経路」参照) と Policy Engine の `* deny` で緩和する。完全遮断にはならないが、DNS rebinding 等の高度な攻撃以外の典型的な漏洩パターンは塞ぐ
 - **隔離プロセスの stderr が main agent に流れる経路は残る**: `quarantine-fetch-gemini.sh` は失敗時に Gemini 子の stderr を親に流す。通常は CLI 自体のエラー文だが、ランタイム仕様変更や巧妙な入力で stderr 側に攻撃ペイロードが現れる可能性は完全には排除できない (claude 版と同じ性質)
 - **依存ゼロ**: Node 標準のみで完結させ、配布性を最大化する (`pipe-sanitize-gemini.ts` も含めて外部パッケージなし)
 - **フォールバックなし**: Node 23.6 未満は fail-fast。複数の実行経路を持つと保守性が落ちる
-- **URL のシェルインジェクション防止は多層**: main agent → `quarantine-fetch-gemini.sh` の呼び出しで URL を `'...'` で囲むのは main agent のソフト判断。`quarantine-fetch-gemini.sh` の入口でスキーム検証 (`http://` / `https://` のみ) ・禁止文字検証 (バッククォート / `$()` / 制御文字) ・長さ上限 (2048 文字) を行い、不正な URL は API コスト発生前にハード制約として弾く。`pipe-sanitize-gemini.ts` 側の `validateCliUrl` も深層防御として残す
+- **URL のシェルインジェクション防止は多層**: main agent → `quarantine-fetch-gemini.sh` の呼び出しで URL を `'...'` で囲むのは main agent のソフト判断。`quarantine-fetch-gemini.sh` の入口でスキーム検証 (`http://` / `https://` のみ) ・禁止文字検証 (バッククォート / `$()` / 制御文字) ・長さ上限 (2048 文字) を行い、不正な URL は API コスト発生前にハード制約として弾く。`pipe-sanitize-gemini.ts` 側の `validateCliUrl` は深層防御として残し、private host / 末尾ドット / IPv4-mapped IPv6 / user info を含むホスト抽出など shell では扱わない検証を担当する
 - **ローカルファイルの出所追跡は不可**: 外部由来のファイルがローカル保存される経路を自動追跡する仕組みはなく、main agent のソフト判断に依存する
 - **LLM マーカーの過検出**: `<s>` / `</s>` は Llama BOS/EOS と HTML strikethrough の衝突、`you are now ` / `new instructions:` は通常英文との衝突がありうる。「過検出寄りで fail-closed、ユーザー確認で運用補完」の方針を採用 (claude 版と共通)
 - **パターンリストの陳腐化**: LLM マーカーのパターンは新しい攻撃手法の出現により陳腐化する。`guarded-webfetch-claude/references/injection_patterns.md` の更新に追従し、本スキルの `sanitize.ts` にも反映する
@@ -624,24 +625,14 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
 
 ## 13. 残課題と未確定事項
 
-調査・検証は Gemini CLI v0.40.0 / Google アカウント OAuth ログイン環境で実施。解決済み項目は §4 / §6 / §8 / §10 等の関連セクションに反映済みのため本セクションには記載しない。未解決のみを重要度 3 段階で整理し、実装着手の判断軸を明確にする。
+調査・検証は Gemini CLI v0.40.0 / Google アカウント OAuth ログイン環境で実施。実装完了後も継続的に観察・追従が必要な項目を以下に列挙する。
 
-### A. 実装ブロッカー (本スキルの存在意義に直結。実装着手前に PoC 必須)
-
-すべて解決済み。PoC E (sandbox 越しのローカル fallback 遮断検証、E-1〜E-4) で得た事実は §10 に反映済み。実装着手の前提条件は満たした。
-
-### B. 実装と並行で確認 (運用品質に影響、致命的ではない)
-
-- [ ] **private host / private IP の URL 入口 deny 実装** — PoC E-4 で `host.docker.internal` が sandbox 漏洩経路になることが判明したため、§10 で列挙したホスト名・IP 範囲を `quarantine-fetch-gemini.sh` の URL 入口検証および `pipe-sanitize-gemini.ts` の `validateCliUrl` で deny する実装を追加する。既存の URL バリデーション (スキーム / 禁止文字 / 長さ) と同じレイヤで完結させる
 - [ ] **GEMINI.md 自動読込を抑止する公式手段** — global `~/.gemini/GEMINI.md` の読込抑止フラグ / env / `settings.json` キーが v0.40 にあるか調査。見つからなければ §10 の割り切りとして恒久化
 - [ ] **`.env` 上方再帰読込の抑止 (whitelist バイパスの唯一の既知経路)** — `env -i` で消去した変数が `.env` 経由で復活しうるため、`GEMINI_CLI_NO_DOTENV` 等の抑止フラグの有無を確認する。`.env` 内に `GEMINI_SANDBOX` 等が含まれていた場合、本スキルの sandbox 設定が上書きされるリスクがある。見つからなければ §10 の割り切りとして恒久化し、`.env` に security-sensitive な `GEMINI_*` を含めないよう運用ガイドに記載する
-- [ ] **デフォルトモデル固定** — preview ラベルなしの安定モデル名を `-m` で明示固定する。現状の自動選択 `gemini-3-flash-preview` は preview であり、品質・互換性・料金が変動しうる
-
-### C. 継続観察 (将来のバージョン変動リスク・コスト試算)
-
 - [ ] **`--policy` が Admin tier 相当に振る舞う根拠** — 公式 docs の tier 表 (Default=1 / Extension=2 / User=4 / Admin=5) からは User tier max (4.999) を上書きできる説明がつかない。CLI ソース読みかさらなる PoC で根拠を確認し、将来のバージョンアップで挙動が変わるリスクに備える
 - [ ] **トークン消費見積もりとレートリミット試算** — "pong" 1 語で input 7,784 tokens、web_fetch 1 回で 17K+ tokens。並列 5 件運用時のコスト試算、OAuth 無料枠 / API key 有料枠でのレートリミット観察を継続
 - [ ] **DNS rebinding への対応** — §10 の private host deny は名前ベースのフィルタで、ホスト名が DNS で private IP に解決されるケースは防げない。Gemini CLI の WebFetchTool 自身もホスト名解決後の IP までチェックしているとは限らないため、必要に応じて将来 `pipe-sanitize-gemini.ts` 側で DNS 解決後の IP を二段検証するなどの強化を検討
+- [ ] **デフォルトモデルの stable 後継追従** — 現在 `scripts/quarantine-fetch-gemini.sh` で `gemini-3.1-flash-lite-preview` を `-m` で明示固定しているが preview ラベル付きであり、品質・互換性・料金が変動しうる。preview ラベルが外れた stable 後継、または同系統の安定モデルが出たら差し替える
 
 ## 14. 参考資料
 

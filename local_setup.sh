@@ -5,6 +5,7 @@ npm ci
 # claude コマンドのシンボリックリンクを作成
 CLAUDE_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/claude"
 sudo ln -sf "$CLAUDE_BIN" /usr/local/bin/claude
+node node_modules/@anthropic-ai/claude-code/install.cjs
 
 # codex コマンドのシンボリックリンクを作成
 CODEX_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/codex"
@@ -29,7 +30,6 @@ fi
 echo "デフォルトskillをインストールします"
 gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
-gh skill install anthropics/skills skill-creator --agent codex --scope project
 
 # python3はskill-creator 同梱の Python スクリプト (eval-viewer 等) を実行するために必要
 # bubblewrapはCodexに必要

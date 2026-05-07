@@ -22,7 +22,9 @@ fi
 
 URL="$1"
 
-# ---------- URL 入口検証 ----------
+# ---------- URL 入口検証 (簡易) ----------
+# 完全な private host/IP deny (localhost.localdomain, IPv4-mapped IPv6, IPv6 fc00::/fe80::, 末尾ドット, user info 等) は
+# pipe-sanitize-gemini.ts の validateCliUrl 側で fail-closed させる。shell では典型ケースだけを早期に弾く。
 # スキーム検証: http:// または https:// のみ許可
 case "$URL" in
   http://*|https://*) ;;
@@ -151,7 +153,9 @@ PROMPT_EOF
 )
 
 # ---------- cleanup trap ----------
-stderr_file="$(mktemp)"
+# stderr ファイルは $quarantine_base 直下に作成し、AGENTS.md の「一時ファイルは .temp/ 配下」方針と揃える。
+# $quarantine_cwd 内に置かないのは、Gemini プロセスからの読み取り経路 (policy override 等の最悪ケース) を避けるため
+stderr_file="$(mktemp "$quarantine_base/stderr-XXXXXXXX")"
 trap 'rm -f "$stderr_file"; rm -rf "$quarantine_cwd"' EXIT
 
 # ---------- Gemini 実行関数 ----------
