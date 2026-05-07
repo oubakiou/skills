@@ -1,0 +1,26 @@
+# 既定: 全ツール deny。deny は「モデルに見えない」ためツール選択候補から除外される。
+# google_web_search や read_file 等の Gemini 標準ツールがモデル inventory に残ると、
+# web_fetch deny 時にそれらに逃げて「別経路で目的達成」される (PoC で google_web_search の
+# 迂回を確認済み)。よって本ルールは必須。
+[[rule]]
+toolName = "*"
+decision = "deny"
+priority = 0
+
+# web_fetch のみ明示 allow。priority を 100 にすることで User tier に存在する
+# 一般的な deny rule (priority 0-999) より基本的に優先される。--policy 経由のルールは
+# PoC で User tier max priority (999) ですら override できることを確認済み。
+[[rule]]
+toolName = "web_fetch"
+decision = "allow"
+priority = 100
+
+# MCP 経由のツールも全 deny。priority 200 は web_fetch allow (100) より高いが、
+# mcpName = "*" が指定されているため、MCP 経由でない native web_fetch には
+# このルールはマッチしない。MCP 経由で "web_fetch" という名前のツールが
+# 提供された場合はこのルールで deny される（意図通り）。
+[[rule]]
+toolName = "*"
+mcpName = "*"
+decision = "deny"
+priority = 200

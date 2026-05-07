@@ -2,7 +2,7 @@
 
 このドキュメントは `guarded-webfetch-gemini` skill の設計意図・構成・割り切りを記録するためのものである。skill の `references/design-plan.md` として配置し、将来の改修・監査・比較検討時の参照資料とする。
 
-現時点ではスキル本体（SKILL.md / scripts）はまだ実装されておらず、本ドキュメントは実装着手前の設計レビュー用である。
+スキル本体（SKILL.md / scripts）は実装済みである。本ドキュメントは設計意図・脅威モデル・割り切りの参照資料として維持する。
 
 ## 目次
 
@@ -166,7 +166,7 @@ rm -rf "$tmpdir"
 
 #### 検証時の注意事項
 
-- **arm64 環境でのプラットフォーム警告**: Gemini CLI の sandbox が使用する Docker イメージが amd64 向けの場合、`WARNING: The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)` が stderr に出力される。QEMU エミュレーションで動作するため機能上は問題ないが、パフォーマンスに影響する可能性がある
+- **arm64 環境での sandbox イメージ非互換**: Gemini CLI の sandbox イメージ `us-docker.pkg.dev/gemini-code-dev/gemini-cli/sandbox:0.40.0` は `linux/amd64` であり、`arm64` ホストでは `WARNING: The requested image's platform (linux/amd64) does not match the detected host platform (linux/arm64/v8)` が stderr に出力される。通常の Docker では QEMU エミュレーション経由で起動できる場合がある一方、`runsc` ではこの環境で `failed to load /usr/local/bin/docker-entrypoint.sh: exec format error` となり起動できなかった。そのため本スキルでは `arm64` で sandbox を有効化しない
 - **Docker-in-Docker (DinD) 環境**: devcontainer 等の DinD 構成では、`dockerd` がコンテナ内で動作しているため `sudo kill -HUP $(pidof dockerd)` で設定をリロードできる。ホストの Docker socket をマウントしている構成 (Docker-from-host) では、ホスト側の `daemon.json` を変更し、ホスト側の `dockerd` を再起動する必要がある
 - **systemd が無い環境**: devcontainer では `systemctl restart docker` が使えないため、`kill -HUP` によるリロードが唯一の手段となる
 - **無害な stderr ノイズ**: `Ripgrep is not available. Falling back to GrepTool.` は Gemini CLI の通常出力であり、gVisor sandbox の動作には影響しない
@@ -180,7 +180,7 @@ rm -rf "$tmpdir"
 - **モデルは deny されたツールの代替に逃げる**: PoC 確認済み。`web_fetch` だけ deny して放置すると Gemini は `google_web_search` などの別ツールで目的を達成しようとする。本スキルの policy では「`* deny` + `web_fetch allow`」で**全ツール抑止 → web_fetch のみ allow** にする必要がある (個別の web 系ツールを羅列して deny するアプローチでは漏れる)
 - **Plan Mode と headless の干渉**: `--approval-mode plan` では `web_fetch` でも常に user approval を要求する仕様で、headless 時の `ask_user` は `deny` として扱われる。よって本スキルでは `--approval-mode default` を使い、Policy で明示的に `allow` する
 - **`web_fetch` のローカル fallback**: Gemini API (urlContext) 失敗時にローカル raw 取得に fallback する仕様が公式 docs で明記。PoC でも stderr に `[WebFetchTool] Primary fetch failed, falling back: ...` が観測された。`--sandbox` でファイルシステム隔離を強制し、policy で `read_file` 系ツールを deny することで影響を抑える (sandbox 越しの遮断確認は §13 残課題)
-- **デフォルトモデル**: PoC では `gemini-3-flash-preview` が選ばれた。preview ラベル付きで安定性が変動する可能性があるため、本スキルでは `-m` で明示固定するのが望ましい（具体モデル指定は実装時に決定）
+- **デフォルトモデル**: PoC では `gemini-3-flash-preview` が選ばれた。preview ラベル付きで安定性が変動する可能性があるため、本スキルでは `-m` で明示固定する。実装では OAuth 無料枠でのレートリミット耐性と応答速度のバランスを考慮し `gemini-3.1-flash-lite-preview` をデフォルトとした（`GEMINI_MODEL` 環境変数で上書き可能）。stable 版が出たら差し替える
 - **GEMINI.md の自動読込**: 隔離 cwd を `mktemp -d` で空ディレクトリにすることで cwd / project レベルの `GEMINI.md` 読込は塞げる。ただし global `~/.gemini/GEMINI.md` は HOME を whitelist している以上 Gemini 子に読み込まれる (§10 リスクとして記載)
 - **`.env` の自動読込**: Gemini CLI は cwd から上方再帰で `.env` を探す。`mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で切るパスが上位プロジェクトの `.env` を拾う可能性があるため、設計上は隔離スクリプト内で `GEMINI_CLI_NO_DOTENV` 等の抑止フラグの有無を検証するか、`HOME` 配下の `.gemini/.env` を信頼境界として明示する必要がある
 - **Workspace trust スキップ**: `--skip-trust` で trust チェックを bypass する以外に、`GEMINI_CLI_TRUST_WORKSPACE=true` を whitelist に通す方法もある。本スキルは `--skip-trust` を採用する (CLI 引数として明示的、env 経路を最小化)
@@ -269,7 +269,7 @@ guarded-webfetch-gemini/
 5. 隔離 cwd 配下から `env -i` + whitelist で以下のコマンドを実行
 
    ```bash
-   # sandbox_args は runsc 利用可能時のみ設定される (後述)
+   # sandbox_env / sandbox_flag は runsc 利用可能時のみ設定される (後述)
    timeout 60 env -i \
      PATH="$PATH" HOME="$HOME" \
      GEMINI_API_KEY="${GEMINI_API_KEY:-}" \
@@ -279,20 +279,22 @@ guarded-webfetch-gemini/
      GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-}" \
      LANG="$LANG" LC_ALL="${LC_ALL:-}" TZ="${TZ:-}" \
      $sandbox_env \
-     gemini -p \
+     gemini \
        --skip-trust \
        $sandbox_flag \
        --policy "$skill_dir/references/quarantine-fetch-policy.toml" \
        --approval-mode default \
        -m "$GEMINI_MODEL" \
        -o json \
-       "<プロンプト>"
+       -p "$PROMPT"
    ```
 
-   スクリプト内で `runsc` の存在を検出し、sandbox 引数を動的に構成する:
+   スクリプト内で `runsc` の存在を検出し、sandbox 引数を動的に構成する。arm64 環境では Gemini CLI の sandbox Docker イメージが amd64 向けであり、runsc で exec format error となるため x86_64 のみ有効化する:
 
    ```bash
-   if command -v runsc &>/dev/null \
+   host_arch="$(uname -m)"
+   if [ "$host_arch" = "x86_64" ] \
+       && command -v runsc &>/dev/null \
        && docker info 2>/dev/null | grep -q runsc; then
      sandbox_env="GEMINI_SANDBOX=runsc"
      sandbox_flag="--sandbox"
@@ -305,7 +307,7 @@ guarded-webfetch-gemini/
    - `timeout 60`: プロセスレベルのハードリミット (60 秒)。Gemini CLI に `--max-turns` 相当が無いため、無限ループや応答遅延による API コスト暴走を防ぐ。タイムアウト時は exit code 124 で終了
    - `--skip-trust`: workspace trust チェックを bypass (PoC 確認: 無いと exit code 55 で停止)
    - `--sandbox` + `GEMINI_SANDBOX=runsc`: gVisor (runsc) が利用可能な場合のみ有効化。`runsc` バイナリの存在と Docker ランタイムへの登録の両方を確認する。利用不可の場合は sandbox なしで続行し、URL 入口検証と Policy Engine による多層防御で代替する
-   - `-m "$GEMINI_MODEL"`: 安定モデルを明示固定する。デフォルトでは `gemini-3-flash-preview` 等の preview ラベル付きモデルが選ばれる可能性があるため、本番運用時は安定版モデルを `GEMINI_MODEL` 変数で指定する
+   - `-m "$GEMINI_MODEL"`: モデルを明示固定する。デフォルトは `gemini-3.1-flash-lite-preview`（OAuth 無料枠でのレートリミット耐性考慮）。`GEMINI_MODEL` 環境変数で上書き可能
 
 6. Gemini の `-o json` 出力を `pipe-sanitize-gemini.ts` にパイプする。URL を CLI 引数として渡し、オリジン検証に使用する
 
@@ -485,7 +487,7 @@ PoC で確認した実体スキーマ:
 
 ### 内側 JSON スキーマ（`fetch-output-schema.json`）
 
-CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` のバリデーション基準として保持する。`maxLength` 超過はスキーマ違反として reject するのではなく、**parse 後に truncate** してから後続処理に進む（`raw_text` は `sanitize.ts` 内で、`error_message` は `pipe-sanitize-gemini.ts` 内で切り詰め）。これにより Gemini 子が指定文字数を守らなかった場合でも処理が継続される。
+CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書きで同等のバリデーションを実装する。具体的には `rejectExtraKeys()` で `additionalProperties: false` 相当の未知フィールド reject、`assertInnerFieldTypes()` で必須 4 フィールドの型検証を行う。外部 schema ライブラリは依存ゼロ方針のため使用しない。`maxLength` 超過はスキーマ違反として reject するのではなく、**parse 後に truncate** してから後続処理に進む（`raw_text` は `sanitize.ts` 内で、`error_message` は `pipe-sanitize-gemini.ts` 内で切り詰め）。これにより Gemini 子が指定文字数を守らなかった場合でも処理が継続される。
 
 ```json
 {
