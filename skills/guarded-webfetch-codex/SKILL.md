@@ -5,7 +5,7 @@ description: >
   Claude 親エージェントが Codex 子プロセスを使って Web コンテンツを安全寄りに取得するための防御スキル。
   URL を指定して内容取得・要約・分析を行う際に、Claude ではなく Codex を隔離 fetcher として使いたい場合は必ず使用する。
   生の Web コンテンツを親 Claude のコンテキストに直接入れず、Codex 子の JSON 出力を静的サニタイザに通してから扱うこと。
-allowed-tools: Bash(.claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh:*)
+allowed-tools: Bash(bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh:*)
 ---
 
 # guarded-webfetch-codex
@@ -43,7 +43,7 @@ main Claude agent
 対象 URL ごとに以下を実行する。
 
 ```bash
-.claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<対象URL>'
+bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<対象URL>'
 ```
 
 このスクリプトは以下を行う。

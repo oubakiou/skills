@@ -136,7 +136,7 @@ guarded-webfetch-codex/
 各 URL に対して次を実行する。
 
 ```bash
-.claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<対象URL>'
+bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<対象URL>'
 ```
 
 `quarantine-fetch-codex.sh` は以下を行う。

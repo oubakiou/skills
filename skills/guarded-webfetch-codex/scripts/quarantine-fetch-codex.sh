@@ -6,7 +6,7 @@ SKILL_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Node.js のバージョンチェックは check-node-version.sh に集約。
 # bash サブプロセス呼び出しで exit 3 を伝播させ、quarantine 側の前提条件不足判定と一本化する。
-"$SCRIPT_DIR/check-node-version.sh" >/dev/null
+bash "$SCRIPT_DIR/check-node-version.sh" >/dev/null
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "ERROR: codex CLI が見つかりません。" >&2

@@ -164,7 +164,7 @@ guarded-webfetch-claude/
 **ステップ 0: 前提条件チェック（最初に必ず実行）**
 
 ```bash
-.claude/skills/guarded-webfetch-claude/scripts/check-node-version.sh
+bash .claude/skills/guarded-webfetch-claude/scripts/check-node-version.sh
 ```
 
 このチェックは SKILL.md のステップ 0 として main agent が Bash ツールで実行する。23.6 未満の場合はスクリプトが exit code 3 で終了するので、ユーザーに以下を伝えて中止:

@@ -37,7 +37,7 @@ npx skills add oubakiou/skills --skill guarded-websearch-gemini --agent claude-c
 Claude Code を起動した状態で URL 取得や Web 検索を要求すると、フロントマターの `description` に基づき該当スキルが自動発動する。スキル単体の挙動を手動で確認したい場合は隔離スクリプトを直接実行できる。
 
 ```bash
-.claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh 'https://example.com'
+bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh 'https://example.com'
 ```
 
 ## スキル一覧
@@ -102,7 +102,7 @@ main agent (Claude Code)
 
 ```bash
 CLAUDE_MODEL=claude-haiku-4-5-20251001 \
-  .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh '<URL>'
+  bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh '<URL>'
 ```
 
 ## 開発

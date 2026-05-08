@@ -173,7 +173,7 @@ sanitize.ts は guarded-webfetch-claude 側で一元管理し、本スキルは 
 **ステップ 0: 前提条件チェック（最初に必ず実行）**
 
 ```bash
-.claude/skills/guarded-websearch-claude/scripts/check-node-version.sh
+bash .claude/skills/guarded-websearch-claude/scripts/check-node-version.sh
 ```
 
 このチェックは SKILL.md のステップ 0 として main agent が Bash ツールで実行する。23.6 未満の場合はスクリプトが exit code 3 で終了するので、ユーザーに以下を伝えて中止:
@@ -191,7 +191,7 @@ sanitize.ts は guarded-webfetch-claude 側で一元管理し、本スキルは 
 `quarantine-search.sh` を呼び出す。env vars / cwd 切替 / `claude -p` / `pipe-sanitize-search.ts` の接続・レートリミットリトライまでをスクリプトに集約している。
 
 ```bash
-.claude/skills/guarded-websearch-claude/scripts/quarantine-search.sh '<検索クエリ>'
+bash .claude/skills/guarded-websearch-claude/scripts/quarantine-search.sh '<検索クエリ>'
 ```
 
 > **シェルインジェクション防止 (多層防御)**: クエリは `'...'` で囲んで bash に渡す（main agent のソフト判断）。一方、`quarantine-search.sh` の入口で禁止文字検証（`` ` ``、`$(`、制御文字）と長さ上限 1000 字を行い、不正なクエリは API コスト発生前に exit code 2 で弾く（ハード制約）。bash の heredoc (sigil 無し) では変数値の中身は再評価されないため `$()`/バッククォートのコマンド置換は発生しないが、プロンプト整形の崩れや将来の実装変更で injection 経路となる余地を一律塞ぐため fail-closed で拒否する。プロンプト整形は LLM がどこまでをクエリとみなすかの曖昧さを避けるため、クエリを引用符で囲わず独立した行に配置する形式（`QUERY:\n${QUERY}`）に統一している。

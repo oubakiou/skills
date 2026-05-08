@@ -153,7 +153,7 @@ guarded-websearch-gemini/
 ### ステップ 0: 前提条件チェック
 
 ```bash
-.claude/skills/guarded-websearch-gemini/scripts/check-node-version.sh
+bash .claude/skills/guarded-websearch-gemini/scripts/check-node-version.sh
 ```
 
 Node.js 23.6 未満の場合は exit code 3 で終了。
@@ -165,7 +165,7 @@ Node.js 23.6 未満の場合は exit code 3 で終了。
 ### ステップ 2: search + sanitize
 
 ```bash
-.claude/skills/guarded-websearch-gemini/scripts/quarantine-search-gemini.sh '<検索クエリ>'
+bash .claude/skills/guarded-websearch-gemini/scripts/quarantine-search-gemini.sh '<検索クエリ>'
 ```
 
 `quarantine-search-gemini.sh` は以下を行う:

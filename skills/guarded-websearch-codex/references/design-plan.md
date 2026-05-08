@@ -126,7 +126,7 @@ guarded-websearch-codex/
 各検索クエリに対して以下を実行する。
 
 ```bash
-.claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh '<検索クエリ>'
+bash .claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh '<検索クエリ>'
 ```
 
 `quarantine-search-codex.sh` は以下を行う。
