@@ -117,7 +117,7 @@ Gemini 固有:
 
 ### gVisor (runsc) セットアップ手順
 
-gVisor (runsc) が利用可能な環境では sandbox を有効化し、ローカル fallback リスク (§10 参照) を OS レベルで遮断できる。未インストールの場合は sandbox なしで動作するが、セキュリティ強度が低下するため、可能な限りインストールを推奨する。以下は Linux 環境でのセットアップ手順である。検証は devcontainer (Docker-in-Docker 構成、arm64、Linux 6.10.14-linuxkit) + Gemini CLI v0.40.1 で実施した。
+gVisor (runsc) が利用可能な環境では多層防御の一層として sandbox を有効化し、ローカル fallback リスク (§10 参照) の軽減に寄与させる。未インストールの場合は sandbox なしで動作する（主たる緩和層は URL 入口検証 + Policy Engine の `* deny` であり、sandbox はそれに上乗せする位置づけ）。可能な限りインストールを推奨する。以下は Linux 環境でのセットアップ手順である。検証は devcontainer (Docker-in-Docker 構成、arm64、Linux 6.10.14-linuxkit) + Gemini CLI v0.40.1 で実施した。
 
 #### 1. runsc バイナリのインストール
 
@@ -179,7 +179,7 @@ rm -rf "$tmpdir"
 - **`--policy` の優先度は実質 Admin tier 相当**: PoC 確認済み。User tier (`~/.gemini/policies/`) で priority 999 (最大) の deny がある状態でも、`--policy` 経由のルールが override する。これは公式 Policy Engine docs の tier 表 (Default=1 / Extension=2 / User=4 / Admin=5) の数学的計算と矛盾するが、実機挙動として確認できた範囲では `--policy` は User tier deny を確実に上書きできる
 - **モデルは deny されたツールの代替に逃げる**: PoC 確認済み。`web_fetch` だけ deny して放置すると Gemini は `google_web_search` などの別ツールで目的を達成しようとする。本スキルの policy では「`* deny` + `web_fetch allow`」で**全ツール抑止 → web_fetch のみ allow** にする必要がある (個別の web 系ツールを羅列して deny するアプローチでは漏れる)
 - **Plan Mode と headless の干渉**: `--approval-mode plan` では `web_fetch` でも常に user approval を要求する仕様で、headless 時の `ask_user` は `deny` として扱われる。よって本スキルでは `--approval-mode default` を使い、Policy で明示的に `allow` する
-- **`web_fetch` のローカル fallback**: Gemini API (urlContext) 失敗時にローカル raw 取得に fallback する仕様が公式 docs で明記。PoC でも stderr に `[WebFetchTool] Primary fetch failed, falling back: ...` が観測された。`--sandbox` でファイルシステム隔離を強制し、policy で `read_file` 系ツールを deny することで影響を抑える (sandbox 越しの遮断確認は §13 残課題)
+- **`web_fetch` のローカル fallback**: Gemini API (urlContext) 失敗時にローカル raw 取得に fallback する仕様が公式 docs で明記。PoC でも stderr に `[WebFetchTool] Primary fetch failed, falling back: ...` が観測された。主たる緩和は URL 入口検証 (private host/IP deny) と Policy Engine の `* deny` で行い、policy で `read_file` 系ツールも deny する。runsc が利用可能な環境では `--sandbox` のファイルシステム隔離を多層防御の一層として上乗せする (sandbox 越しの遮断確認は §13 残課題)
 - **デフォルトモデル**: PoC では `gemini-3-flash-preview` が選ばれた。preview ラベル付きで安定性が変動する可能性があるため、本スキルでは `-m` で明示固定する。実装では OAuth 無料枠でのレートリミット耐性と応答速度のバランスを考慮し `gemini-3.1-flash-lite-preview` をデフォルトとした（`GEMINI_MODEL` 環境変数で上書き可能）。stable 版が出たら差し替える
 - **GEMINI.md の自動読込**: 隔離 cwd を `mktemp -d` で空ディレクトリにすることで cwd / project レベルの `GEMINI.md` 読込は塞げる。ただし global `~/.gemini/GEMINI.md` は HOME を whitelist している以上 Gemini 子に読み込まれる (§10 リスクとして記載)
 - **`.env` の自動読込**: Gemini CLI は cwd から上方再帰で `.env` を探す。`mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で切るパスが上位プロジェクトの `.env` を拾う可能性があるため、設計上は隔離スクリプト内で `GEMINI_CLI_NO_DOTENV` 等の抑止フラグの有無を検証するか、`HOME` 配下の `.gemini/.env` を信頼境界として明示する必要がある
@@ -521,7 +521,7 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
 このスクリプトは認証情報を whitelist で最低限通しつつ、それ以外の環境変数を `env -i` で完全に消去する。
 
 - **env scrub**: §4「環境変数の取り扱い」で列挙した whitelist のみを `env -i` 経由で渡す。`GEMINI_*` の未知の設定や他社認証情報・親 Claude の env が隔離プロセスに漏れないようにする
-- **`--sandbox` + `GEMINI_SANDBOX=runsc` (条件付き)**: スクリプト内で `runsc` バイナリの存在と Docker ランタイムへの登録を確認し、両方が満たされる場合のみ `--sandbox` と `GEMINI_SANDBOX=runsc` を付与する。利用不可の場合は sandbox なしで続行する。sandbox なし時はローカル fallback リスク (§10 参照) が残るため、URL 入口検証の private host/IP deny と Policy Engine の `* deny` で多層防御する
+- **`--sandbox` + `GEMINI_SANDBOX=runsc` (条件付き)**: スクリプト内で `runsc` バイナリの存在と Docker ランタイムへの登録を確認し、両方が満たされる場合のみ `--sandbox` と `GEMINI_SANDBOX=runsc` を付与する。利用不可の場合は sandbox なしで続行する。ローカル fallback リスク (§10 参照) の主たる緩和は URL 入口検証の private host/IP deny と Policy Engine の `* deny` が担い、sandbox は runsc が利用可能なときに多層防御の一層として上乗せする位置づけ
 - **cwd 切替**: `(cd "$quarantine_cwd" && env -i ... gemini ...)` のサブシェルで実行する。`$quarantine_cwd` は `mktemp -d "$PWD/.temp/guarded-webfetch-gemini/run-XXXXXXXX"` で実行ごとに生成し、`trap EXIT` で削除する。隔離 cwd 直下に `GEMINI.md` を置かないことを保証する
 - **URL の入口検証**: claude / codex 版と同様、`http://` / `https://` プレフィクス、バッククォート / `$()`、制御文字、長さ上限 (2048 文字) を入口で検証し、不正な URL は `gemini` 起動前に exit code 2 で弾く (API コスト発生前のハード制約)
 - **Policy tier 由来の deny 検出**: 本スキルの `--policy` は User tier max priority (999) すら override できることを PoC で確認したため、通常運用ではユーザー側 policy による web_fetch deny は発生しない。万が一それでも web_fetch が呼ばれなかった場合の検出は、`stats.tools.byName.web_fetch.count === 0` で判定し fail-closed する (機械可読シグナル)。stderr 文字列の `Tool "web_fetch" not found.` も補助的に確認可能だが、文字列マッチに依存しない設計を優先する
@@ -569,7 +569,7 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
 - **`.env` の上方再帰読込 (whitelist バイパスの唯一の既知経路)**: Gemini CLI は cwd から上方再帰で `.env` を探す。`.temp/guarded-webfetch-gemini/run-XXXXXXXX/` に cwd を切り替えても、上位ディレクトリ ($PWD / プロジェクトルート / $HOME) の `.env` がそのまま拾われる可能性がある。`HOME` を whitelist で渡しているため `~/.gemini/.env` も読まれうる。**これは `env -i` による whitelist 方式を迂回する唯一の既知経路であり**、`.env` 内に `GEMINI_SANDBOX` や将来追加される `GEMINI_*` 系の env が含まれていた場合、本スキルが `env -i` で消去した変数が `.env` 経由で復活する。`.env` には認証情報が入っている前提で、本スキルではこの読込経路をブロックしない (§13 残課題: `GEMINI_CLI_NO_DOTENV` 等の抑止フラグが将来追加されたら採用)
 - **Workspace trust は `--skip-trust` で bypass する**: trust チェックをスキップする以上、`gemini -p` が cwd 内のファイルを誤って実行する経路を CLI 側で抑止する保険が外れる。本スキルでは `mktemp -d` で空ディレクトリの cwd に切り替えていることと policy の `* deny` でこのリスクを抑える
 - **認証情報の通過は whitelist 方式**: §4 で列挙した `GEMINI_API_KEY` / `GOOGLE_APPLICATION_CREDENTIALS` 等のみを `env -i` 経由で通す。安全性と認証経路の両立のためのトレードオフ
-- **ローカル fallback の挙動 (PoC E で検証済み)**: Gemini API の `urlContext` 失敗時にローカルマシンから raw 取得する仕様は実在する。runsc が利用可能な環境では `--sandbox` + `GEMINI_SANDBOX=runsc` で OS レベルの隔離を適用する。runsc が利用不可の場合は sandbox なしで動作し、URL 入口検証の private host/IP deny と Policy Engine の `* deny` で多層防御する。PoC 結果は以下の通り (PoC は Docker sandbox で実施。gVisor sandbox でも同等以上の隔離が期待できる):
+- **ローカル fallback の挙動 (PoC E で検証済み)**: Gemini API の `urlContext` 失敗時にローカルマシンから raw 取得する仕様は実在する。主たる緩和層は URL 入口検証の private host/IP deny と Policy Engine の `* deny`。runsc が利用可能な環境ではこれに加えて `--sandbox` + `GEMINI_SANDBOX=runsc` の OS レベル隔離を多層防御の一層として上乗せする。runsc が利用不可の場合は sandbox 層を持たずに動作する。PoC 結果は以下の通り (PoC は Docker sandbox で実施。gVisor sandbox でも同等以上の隔離が期待できる):
   - `localhost` / `127.0.0.1` / `0.0.0.0` / `[::1]` (IPv6 loopback): Gemini WebFetchTool 自体に「private or local host」スキップ機構があり、sandbox の有無に依らずスキップされる (`[WebFetchTool] Skipped private or local host: ...`)
   - sandbox 無しでの fallback: host のディレクトリ全体に到達可能 (PoC E-1 で host:8080 listener の dir listing から関連ファイル群を取得されることを確認)
   - sandbox 有り (`--sandbox docker`) の fallback: container 内に閉じ込められ、host へは到達しない (PoC E-2 で container 内 ECONNREFUSED を確認)
@@ -580,7 +580,7 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
   - IP リテラル: `127.0.0.0/8`, `0.0.0.0`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16` (link-local), `::1`, `fc00::/7`, `fe80::/10`, IPv4-mapped IPv6 (`::ffff:x.x.x.x` 混在表記および `::ffff:7f00:1` 完全展開形)
   - 二層化の割り切り: shell の簡易チェックを TS と完全一致させると IPv4-mapped IPv6 の hex 進数変換等の二重実装になり保守負担が増える。shell では「明らかな private host を API コスト発生前に弾く」までを担当し、完全な fail-closed は TS 側で行う設計とした
   - これは「ホスト名で書かれた URL が DNS で private IP に解決される」攻撃 (DNS rebinding 等) までは防げない (best-effort)。完全防御にはならないが、典型的な漏洩パターンは塞ぐ
-- **sandbox は runsc 利用可能時のみ有効化する**: runsc が利用可能な環境では `GEMINI_SANDBOX=runsc` + `--sandbox` で OS レベル隔離を適用する。利用不可の場合は sandbox なしで続行する。sandbox なし時のローカル fallback リスクは、URL 入口検証の private host/IP deny (§10「`host.docker.internal` 経路」参照) と Policy Engine の `* deny` で緩和する。完全遮断にはならないが、DNS rebinding 等の高度な攻撃以外の典型的な漏洩パターンは塞ぐ
+- **sandbox は runsc 利用可能時にリスク軽減のため有効化する**: ローカル fallback リスクの主たる緩和は URL 入口検証の private host/IP deny (§10「`host.docker.internal` 経路」参照) と Policy Engine の `* deny` が担う。runsc が利用可能な環境では `GEMINI_SANDBOX=runsc` + `--sandbox` で OS レベル隔離を多層防御の一層として上乗せする。利用不可の場合は sandbox 層を持たずに続行する。完全遮断にはならないが、DNS rebinding 等の高度な攻撃以外の典型的な漏洩パターンは塞ぐ
 - **隔離プロセスの stderr が main agent に流れる経路は残る**: `quarantine-fetch-gemini.sh` は失敗時に Gemini 子の stderr を親に流す。通常は CLI 自体のエラー文だが、ランタイム仕様変更や巧妙な入力で stderr 側に攻撃ペイロードが現れる可能性は完全には排除できない (claude 版と同じ性質)
 - **依存ゼロ**: Node 標準のみで完結させ、配布性を最大化する (`pipe-sanitize-gemini.ts` も含めて外部パッケージなし)
 - **フォールバックなし**: Node 23.6 未満は fail-fast。複数の実行経路を持つと保守性が落ちる
@@ -592,28 +592,7 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
 
 ## 11. 既存スキルとの比較
 
-| 観点                     | guarded-webfetch-claude                                         | guarded-webfetch-codex                                   | guarded-webfetch-gemini (本スキル設計)             |
-| ------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
-| 子コマンド               | `claude -p`                                                     | `codex --search exec`                                    | `gemini -p`                                        |
-| 出力形式                 | `--output-format json`                                          | `--json` JSONL                                           | `-o json` 固定ラッパー                             |
-| 出力スキーマ強制         | あり (`--json-schema`)                                          | あり (`--output-schema`)                                 | **無し**（プロンプト指示 + 受信側検証）            |
-| ツール固定               | `--allowedTools "WebFetch"`                                     | プロンプト + sandbox（CLI 直の固定なし）                 | Policy Engine TOML で `*` deny + `web_fetch` allow |
-| Sandbox                  | OS レベル sandbox なし (env + permission deny + cwd 切替の多層) | `--sandbox read-only` / `workspace-write` フォールバック | `--sandbox` + gVisor (runsc 利用可能時のみ) ※1     |
-| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                          | プロンプトと sandbox で抑制                              | Policy で `mcp_*` deny                             |
-| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に            |
-| Max turns / タイムアウト | `--max-turns 3`                                                 | デフォルトの試行回数                                     | `timeout 60` (プロセスレベル 60 秒)                |
-| ローカル fallback リスク | 無し                                                            | 無し                                                     | あり（`web_fetch` の URL API 失敗時）              |
-| 認証                     | Anthropic API key                                               | Codex ログイン                                           | `GEMINI_API_KEY` または Google アカウント          |
-| ツール権限の強さ         | ハード                                                          | 準ハード                                                 | ハード（Policy Engine による強制）                 |
-| 出力スキーマ強度         | ハード                                                          | ハード                                                   | ソフト                                             |
-
-総評:
-
-- **ツール権限**: Gemini = Claude > Codex
-- **出力スキーマ**: Claude = Codex > Gemini
-- **Sandbox**: Gemini > Codex > Claude（OS レベル隔離が選べる）
-
-※1 Gemini 版の sandbox は `web_fetch` のローカル fallback リスク (§10 参照) への対策として runsc 利用可能時のみ有効化する。利用不可の場合は URL 入口検証と Policy Engine で代替防御する。Claude / Codex にはこのリスクが無いため、sandbox 要件は Gemini 固有である。
+guarded-\*-claude / guarded-\*-codex / guarded-\*-gemini の防御実装の差異（子コマンド・出力スキーマ強制・ツール固定方式・Sandbox・MCP 制限・Memory 自動読込抑止・ローカル fallback リスク・認証など）はリポジトリ README の「子プロセスごとの防御実装の比較」表を Single Source of Truth とする。本スキルが Gemini 固有に必要とする多層防御（URL 入口検証・Policy Engine・gVisor sandbox・受信側スキーマ検証）の背景は §10 の割り切りと §8 の Policy / スキーマ仕様を併せて参照。
 
 ## 12. 将来的な拡張候補
 

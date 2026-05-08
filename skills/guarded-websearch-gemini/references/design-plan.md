@@ -275,7 +275,7 @@ priority = 200
 
 `guarded-webfetch-gemini` と共通する割り切り（JSON schema 強制無し、GEMINI.md 自動読込、`.env` 上方再帰読込、Workspace trust skip 等）は `guarded-webfetch-gemini/references/design-plan.md` §10 を参照。本セクションでは websearch 固有の割り切りを記載する。
 
-- **`google_web_search` はローカル fallback が無い**: `web_fetch` と異なり、`google_web_search` にはローカルマシンへの fallback 機構は存在しない。このため sandbox の必要性は webfetch ほど高くないが、ツール横滑り防止のために sandbox を併用する方針は維持する
+- **`google_web_search` はローカル fallback が無い**: `web_fetch` と異なり、`google_web_search` にはローカルマシンへの fallback 機構は存在しない。webfetch 版同様、sandbox は主対策ではなく多層防御の一層であり、runsc が利用可能な環境ではツール横滑り防止の上乗せとして併用する
 - **検索結果の URL は未検証**: 検索結果に含まれる URL は Gemini 子の自己申告であり、実在検証やオリジン検証は行わない。actionable な推奨として出力する際は `guarded-webfetch-gemini` 経由でコンテンツを取得させる
 - **クエリ検証不能**: CLI 引数のクエリは出力の `query` フィールドに固定するが、隔離プロセスが実際に実行したクエリを検証する手段はない。`reported_query` とのサニタイズ後比較で差異を検出するが、Gemini がクエリを言い換えて実行する正常ケースも query_mismatch として検出される
 - **NFKC は大文字小文字を畳まない**: "AI News" と "AI news" のような case 違いは `query_mismatch` が立つ。検知漏れより過剰検知側に倒す設計
@@ -283,17 +283,13 @@ priority = 200
 
 ## 11. 既存スキルとの比較
 
-| 観点             | guarded-websearch-claude       | guarded-websearch-codex          | guarded-websearch-gemini (本スキル)     |
-| ---------------- | ------------------------------ | -------------------------------- | --------------------------------------- |
-| 子コマンド       | `claude -p`                    | `codex --search exec`            | `gemini -p`                             |
-| 使用ツール       | WebSearch                      | Codex 組み込み search            | google_web_search                       |
-| 出力形式         | `--output-format json`         | `--json` JSONL                   | `-o json` 固定ラッパー                  |
-| 出力スキーマ強制 | あり (`--json-schema`)         | あり (`--output-schema`)         | **無し**（プロンプト指示 + 受信側検証） |
-| ツール固定       | `--allowedTools "WebSearch"`   | プロンプト + sandbox             | Policy Engine で `*` deny + allow       |
-| Sandbox          | なし (env + permission の多層) | read-only / workspace-write      | gVisor (runsc 利用可能時のみ)           |
-| クエリ検証       | query_mismatch                 | query_mismatch                   | query_mismatch                          |
-| sanitize.ts      | webfetch-claude から re-export | webfetch-claude 系から re-export | webfetch-gemini から re-export          |
-| 出力構造         | aggregate_flags + 個別 flags   | aggregate_flags + 個別 flags     | aggregate_flags + 個別 flags            |
+guarded-\*-claude / guarded-\*-codex / guarded-\*-gemini の防御実装の差異（子コマンド・出力スキーマ強制・ツール固定方式・Sandbox・MCP 制限・Memory 自動読込抑止・認証など）はリポジトリ README の「子プロセスごとの防御実装の比較」表を Single Source of Truth とする（webfetch を例にしているが、本スキルも同じ実装パターンで、ツール固定対象が `WebSearch` / Codex 組み込み search / `google_web_search` に置き換わるのみ）。
+
+guarded-websearch 系 3 スキルに共通する性質（websearch 固有の項目）:
+
+- **クエリ検証**: 3 スキルとも CLI 引数のクエリと隔離プロセス自己申告 `reported_query` を NFKC 比較し `query_mismatch` フラグで検知
+- **出力構造**: `aggregate_flags`（全結果の集計）と各 `results[i]` 内の `title_flags` / `snippet_flags`（個別）の二層構造
+- **sanitize.ts**: いずれも対応する webfetch 系スキルの sanitize.ts を re-export（websearch-gemini は webfetch-gemini に依存）。単独配布する際の差し替え方針は §10 の割り切りを参照
 
 ## 12. 将来的な拡張候補
 

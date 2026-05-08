@@ -44,19 +44,19 @@ bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh 'https:/
 
 ### guarded-webfetch 系 — URL 指定でのコンテンツ取得防御
 
-| スキル                    | 隔離子プロセス                | 概要                                                                                                                              |
-| ------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `guarded-webfetch-claude` | Claude (`claude -p`)          | Claude の WebFetch ツールで URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-claude/references/design-plan.md)）  |
-| `guarded-webfetch-codex`  | Codex (`codex --search exec`) | Codex の sandbox 内で URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-codex/references/design-plan.md)）         |
-| `guarded-webfetch-gemini` | Gemini (`gemini -p`)          | Gemini の web_fetch ツールで URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-gemini/references/design-plan.md)） |
+| スキル                    | 隔離子プロセス                                                      | 概要                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guarded-webfetch-claude` | Claude (`claude -p`)<br>既定モデル: `claude-sonnet-4-6`             | Claude の WebFetch ツールで URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-claude/references/design-plan.md)）<br>- 短い日本語要約を返す傾向（実測 raw 約 600 文字）<br>- 出力言語が日本語で安定<br>- コードブロックは含めず要点のみ、トークン節約向き                                                               |
+| `guarded-webfetch-codex`  | Codex (`codex --search exec`)<br>既定モデル: `gpt-5.4-mini`         | Codex の sandbox 内で URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-codex/references/design-plan.md)）<br>- ほぼ原文を抽出（実測 raw 約 3,000–3,700 文字、コード片やタグも保持）<br>- 出力言語が日本語で安定<br>- 実行時間の再現性が高く後段で自前要約する用途向き                                                  |
+| `guarded-webfetch-gemini` | Gemini (`gemini -p`)<br>既定モデル: `gemini-3.1-flash-lite-preview` | Gemini の web_fetch ツールで URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-gemini/references/design-plan.md)）<br>- 整形要約に Sources 引用付き（実測 raw 約 1,900–2,000 文字）<br>- 出力言語が日本語/英語に揺れる場合あり<br>- arm64 環境では sandbox がスキップされ、実行時間のばらつき・タイムアウトが起きやすい |
 
 ### guarded-websearch 系 — Web 検索結果の取得防御
 
-| スキル                     | 隔離子プロセス                | 概要                                                                                                                      |
-| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `guarded-websearch-claude` | Claude (`claude -p`)          | Claude の WebSearch ツールで検索しサニタイズ（[設計](skills/guarded-websearch-claude/references/design-plan.md)）         |
-| `guarded-websearch-codex`  | Codex (`codex --search exec`) | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）                    |
-| `guarded-websearch-gemini` | Gemini (`gemini -p`)          | Gemini の google_web_search ツールで検索しサニタイズ（[設計](skills/guarded-websearch-gemini/references/design-plan.md)） |
+| スキル                     | 隔離子プロセス                                                      | 概要                                                                                                                                                                                                                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guarded-websearch-claude` | Claude (`claude -p`)<br>既定モデル: `claude-sonnet-4-6`             | Claude の WebSearch ツールで検索しサニタイズ（[設計](skills/guarded-websearch-claude/references/design-plan.md)）<br>- 結果件数が常に 10 件で安定<br>- 実ページ URL とタイトルをそのまま返す（webfetch 系へ直接連携可）<br>- 実行時間は約 23–26 秒                                                        |
+| `guarded-websearch-codex`  | Codex (`codex --search exec`)<br>既定モデル: `gpt-5.4-mini`         | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）<br>- 実行時間が最速（約 12–16 秒）<br>- 実ページ URL とタイトルを返す<br>- 結果件数は 4–7 件と変動あり、公式 docs に偏る傾向                                                                       |
+| `guarded-websearch-gemini` | Gemini (`gemini -p`)<br>既定モデル: `gemini-3.1-flash-lite-preview` | Gemini の google_web_search ツールで検索しサニタイズ（[設計](skills/guarded-websearch-gemini/references/design-plan.md)）<br>- URL が Google の grounding-redirect 形式となり実 URL が直接得られない<br>- title はホスト名のみ、snippet は本文抜粋<br>- 0 件返却が起こり得る、arm64 環境では sandbox なし |
 
 ## 防御アーキテクチャ
 
@@ -87,6 +87,31 @@ main agent (Claude Code)
 3. **安全性フラグによる行動制御 (ソフト)** — `suspicious_patterns` 検出時はユーザー確認まで actionable な出力を抑制
 
 **これは緩和策であり、完全防御ではない。** 各スキルの `references/design-plan.md` に脅威モデルと割り切りを記載している。
+
+### 子プロセスごとの防御実装の比較
+
+上記 3 層を、各 guarded 系スキルがどの仕組みで実現しているかをまとめる。webfetch 系の例で示すが、websearch 系も実装パターンは同じ（ツール固定対象が `WebSearch` / `google_web_search` に変わるのみ）。
+
+| 観点                     | guarded-\*-claude                                               | guarded-\*-codex                                         | guarded-\*-gemini                                                        |
+| ------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 子コマンド               | `claude -p`                                                     | `codex --search exec`                                    | `gemini -p`                                                              |
+| 出力形式                 | `--output-format json`                                          | `--json` JSONL                                           | `-o json` 固定ラッパー                                                   |
+| 出力スキーマ強制         | あり (`--json-schema`)                                          | あり (`--output-schema`)                                 | 無し（プロンプト指示 + 受信側検証）                                      |
+| ツール固定               | `--allowedTools "WebFetch"` / `"WebSearch"`                     | プロンプト + sandbox（CLI 直の固定なし）                 | Policy Engine TOML で `*` deny + `web_fetch` / `google_web_search` allow |
+| Sandbox                  | OS レベル sandbox なし (env + permission deny + cwd 切替の多層) | `--sandbox read-only` / `workspace-write` フォールバック | `--sandbox` + gVisor (runsc 利用可能時のみ)                              |
+| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                          | プロンプトと sandbox で抑制                              | Policy で `mcp_*` deny                                                   |
+| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に                                  |
+| Max turns / タイムアウト | `--max-turns 3`                                                 | デフォルトの試行回数                                     | `timeout 60` (プロセスレベル 60 秒)                                      |
+| ローカル fallback リスク | 無し                                                            | 無し                                                     | あり（`web_fetch` の URL API 失敗時）                                    |
+| 認証                     | Anthropic API key                                               | Codex ログイン                                           | `GEMINI_API_KEY` または Google アカウント                                |
+| ツール権限の強さ         | ハード                                                          | 準ハード                                                 | ハード（Policy Engine による強制）                                       |
+| 出力スキーマ強度         | ハード                                                          | ハード                                                   | ソフト                                                                   |
+
+総評:
+
+- **ツール権限**: Gemini = Claude > Codex
+- **出力スキーマ**: Claude = Codex > Gemini
+- **Sandbox**: Gemini > Codex > Claude（OS レベル隔離が選べる）
 
 ## カスタマイズ
 
