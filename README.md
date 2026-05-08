@@ -1,24 +1,24 @@
 # skills
 
-LLM エージェント（Claude Code / Codex / Gemini CLI）向けのカスタムスキル集。Web コンテンツ取得・Web 検索時のプロンプトインジェクション緩和を主な目的とする。
+LLM エージェント（Claude Code / Codex / Gemini CLI）向けのカスタムスキル集。
 
 ## スキル一覧
 
 ### guarded-webfetch 系 — URL 指定でのコンテンツ取得防御
 
-| スキル                    | 隔離子プロセス       | 概要                                                          |
-| ------------------------- | -------------------- | ------------------------------------------------------------- |
-| `guarded-webfetch-claude` | Claude (`claude -p`) | Claude の WebFetch ツールで URL コンテンツを取得しサニタイズ  |
-| `guarded-webfetch-codex`  | Codex (`codex exec`) | Codex の sandbox 内で URL コンテンツを取得しサニタイズ        |
-| `guarded-webfetch-gemini` | Gemini (`gemini -p`) | Gemini の web_fetch ツールで URL コンテンツを取得しサニタイズ |
+| スキル                    | 隔離子プロセス                | 概要                                                                                                                                      |
+| ------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `guarded-webfetch-claude` | Claude (`claude -p`)          | Claude の WebFetch ツールで URL コンテンツを取得しサニタイズ（[設計](.claude/skills/guarded-webfetch-claude/references/design-plan.md)）  |
+| `guarded-webfetch-codex`  | Codex (`codex --search exec`) | Codex の sandbox 内で URL コンテンツを取得しサニタイズ（[設計](.claude/skills/guarded-webfetch-codex/references/design-plan.md)）         |
+| `guarded-webfetch-gemini` | Gemini (`gemini -p`)          | Gemini の web_fetch ツールで URL コンテンツを取得しサニタイズ（[設計](.claude/skills/guarded-webfetch-gemini/references/design-plan.md)） |
 
 ### guarded-websearch 系 — Web 検索結果の取得防御
 
-| スキル                     | 隔離子プロセス                | 概要                                                 |
-| -------------------------- | ----------------------------- | ---------------------------------------------------- |
-| `guarded-websearch-claude` | Claude (`claude -p`)          | Claude の WebSearch ツールで検索しサニタイズ         |
-| `guarded-websearch-codex`  | Codex (`codex --search exec`) | Codex の検索機能で検索しサニタイズ                   |
-| `guarded-websearch-gemini` | Gemini (`gemini -p`)          | Gemini の google_web_search ツールで検索しサニタイズ |
+| スキル                     | 隔離子プロセス                | 概要                                                                                                                              |
+| -------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `guarded-websearch-claude` | Claude (`claude -p`)          | Claude の WebSearch ツールで検索しサニタイズ（[設計](.claude/skills/guarded-websearch-claude/references/design-plan.md)）         |
+| `guarded-websearch-codex`  | Codex (`codex --search exec`) | Codex の検索機能で検索しサニタイズ（[設計](.claude/skills/guarded-websearch-codex/references/design-plan.md)）                    |
+| `guarded-websearch-gemini` | Gemini (`gemini -p`)          | Gemini の google_web_search ツールで検索しサニタイズ（[設計](.claude/skills/guarded-websearch-gemini/references/design-plan.md)） |
 
 ### その他
 
@@ -56,7 +56,24 @@ main agent (Claude Code)
 
 **これは緩和策であり、完全防御ではない。** 各スキルの `references/design-plan.md` に脅威モデルと割り切りを記載している。
 
-## セットアップ
+## カスタマイズ
+
+各 guarded 系スキルが隔離子プロセスへ渡すモデルは、環境変数で上書きできる。未設定時はスクリプト内の既定値が使用される。
+
+| 環境変数       | 既定値                          | 対象スキル                            |
+| -------------- | ------------------------------- | ------------------------------------- |
+| `CLAUDE_MODEL` | `claude-sonnet-4-6`             | `guarded-{webfetch,websearch}-claude` |
+| `CODEX_MODEL`  | `gpt-5.4-mini`                  | `guarded-{webfetch,websearch}-codex`  |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite-preview` | `guarded-{webfetch,websearch}-gemini` |
+
+例:
+
+```bash
+CLAUDE_MODEL=claude-haiku-4-5-20251001 \
+  .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh '<URL>'
+```
+
+## 開発
 
 ### 前提条件
 
@@ -65,7 +82,7 @@ main agent (Claude Code)
 
 ### devcontainer
 
-このリポジトリには devcontainer 設定が含まれている。VS Code や GitHub Codespaces で開くと自動的に環境が構築される。
+このリポジトリには devcontainer 設定が含まれている。VS Code や GitHub Codespaces で開くと、`postCreateCommand` 経由で `local_setup.sh` が自動実行され、後述の手動セットアップと同じ結果になる。
 
 ### 手動セットアップ
 
@@ -77,11 +94,9 @@ npm ci
 source local_setup.sh
 ```
 
-## 開発
-
 ### テスト
 
-各スキルの TypeScript スクリプトは [Vitest](https://vitest.dev/) の in-source testing を使用している。
+各スキルの TypeScript スクリプトは Vitest の [in-source testing](https://vitest.dev/guide/in-source) を使用している。
 
 ```bash
 # 全テスト実行
@@ -93,7 +108,7 @@ vp test .claude/skills/guarded-webfetch-gemini/scripts/pipe-sanitize-gemini.ts
 
 ### lint / フォーマット
 
-[vite-plus](https://vite.plus/) (`vp`) を使用。
+[vite-plus](https://viteplus.dev/) (`vp`) を使用。
 
 ```bash
 # チェック + 自動修正
