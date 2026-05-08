@@ -103,7 +103,7 @@ main agent (Claude Code)
 | Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に                                  |
 | Max turns / タイムアウト | `--max-turns 3`                                                 | デフォルトの試行回数                                     | `timeout 60` (プロセスレベル 60 秒)                                      |
 | ローカル fallback リスク | 無し                                                            | 無し                                                     | あり（`web_fetch` の URL API 失敗時）                                    |
-| 認証                     | Anthropic API key                                               | Codex ログイン                                           | `GEMINI_API_KEY` または Google アカウント                                |
+| 認証                     | Claude.ai OAuth（親継承）または `ANTHROPIC_API_KEY`             | ChatGPT ログイン または `OPENAI_API_KEY`                 | Google アカウント OAuth または `GEMINI_API_KEY` / `GOOGLE_API_KEY` / ADC |
 | ツール権限の強さ         | ハード                                                          | 準ハード                                                 | ハード（Policy Engine による強制）                                       |
 | 出力スキーマ強度         | ハード                                                          | ハード                                                   | ソフト                                                                   |
 

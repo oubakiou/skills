@@ -92,7 +92,7 @@ main Claude agent
 
 - Node.js 23.6 以降
 - `codex` CLI がインストール済みであること
-- Codex がログイン済みであること
+- Codex が認証済みであること（ChatGPT アカウント OAuth ログイン (`codex login`) または `OPENAI_API_KEY` 環境変数）
 - `codex --search exec` が利用可能であること
 
 Codex 版の重要な制約:
