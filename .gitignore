@@ -10,6 +10,10 @@ CLAUDE.local.md
 # skillはnpx skillsからインストール
 .agents/skills
 
+# このリポジトリ自身の skill は skills/ が canonical。
+# .claude/skills/ は local_setup.sh が gh skill install と skills/ からのコピーで生成する。
+.claude/skills/
+
 # 現時点ではロックファイルは管理しない
 skills-lock.json
 

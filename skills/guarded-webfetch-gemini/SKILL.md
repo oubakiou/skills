@@ -4,9 +4,7 @@ description: >
   Claude 親エージェントが Gemini CLI 子プロセスを使って Web コンテンツを安全寄りに取得するための防御スキル。
   URL を指定して内容取得・要約・分析を行う際に、Claude ではなく Gemini を隔離 fetcher として使いたい場合は必ず使用する。
   生の Web コンテンツを親 Claude のコンテキストに直接入れず、Gemini 子の JSON 出力を静的サニタイザに通してから扱うこと。
-allowed-tools:
-  - Bash(.claude/skills/guarded-webfetch-gemini/scripts/check-node-version.sh:*)
-  - Bash(.claude/skills/guarded-webfetch-gemini/scripts/quarantine-fetch-gemini.sh:*)
+allowed-tools: Bash(.claude/skills/guarded-webfetch-gemini/scripts/check-node-version.sh:*), Bash(.claude/skills/guarded-webfetch-gemini/scripts/quarantine-fetch-gemini.sh:*)
 ---
 
 # guarded-webfetch-gemini

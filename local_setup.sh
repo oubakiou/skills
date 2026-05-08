@@ -31,6 +31,12 @@ echo "デフォルトskillをインストールします"
 gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
 
+# このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にステージする
+# .claude/skills/ は .gitignore 対象。dogfooding のために skills/ から都度コピーする
+echo "このリポジトリ自身の skill を .claude/skills/ にステージします"
+mkdir -p .claude/skills
+cp -R skills/. .claude/skills/
+
 # python3はskill-creator 同梱の Python スクリプト (eval-viewer 等) を実行するために必要
 # bubblewrapはCodexに必要
 sudo apt-get update -qq && sudo apt-get install -y -qq python3 libpython3-stdlib bubblewrap > /dev/null 2>&1

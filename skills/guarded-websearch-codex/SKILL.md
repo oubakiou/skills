@@ -5,8 +5,7 @@ description: >
   「○○について調べて」「○○を検索して」などの検索要求で、Claude ではなく Codex を隔離 searcher として使いたい場合は必ず使用する。
   検索結果の title・snippet は生で親 Claude に入れず、Codex 子の JSON 出力を静的サニタイザに通してから扱うこと。
   個別 URL のコンテンツ取得には guarded-webfetch-codex を使用すること。
-allowed-tools:
-  - Bash(.claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh:*)
+allowed-tools: Bash(.claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh:*)
 ---
 
 # guarded-websearch-codex

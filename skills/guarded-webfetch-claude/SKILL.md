@@ -5,9 +5,7 @@ description: >
   ユーザーが URL を貼った、「このページ読んで」「サイトをまとめて」と言った、WebFetch を使おうとしている、
   外部コンテンツをコンテキストに取り込もうとしている場合はすべてこのスキルを発動すること。
   Web 検索（WebSearch）には guarded-websearch-claude を使用すること。
-allowed-tools:
-  - Bash(.claude/skills/guarded-webfetch-claude/scripts/check-node-version.sh:*)
-  - Bash(.claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh:*)
+allowed-tools: Bash(.claude/skills/guarded-webfetch-claude/scripts/check-node-version.sh:*), Bash(.claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh:*)
 ---
 
 # guarded-webfetch-claude
