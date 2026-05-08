@@ -152,7 +152,7 @@ vp check
 
 ### ディレクトリ構成
 
-スキルの編集対象は `skills/` 配下のみ。`.claude/skills/` は dogfooding (この repo を Claude Code で開いた際に自スキルを読み込ませる) のためのステージ先で、`local_setup.sh` が `skills/` から複製する。`.gitignore` 対象。
+スキルの編集対象は `skills/` 配下のみ。`.claude/skills/` は dogfooding (この repo を Claude Code で開いた際に自スキルを読み込ませる) のためのインストール先で、`local_setup.sh` が `gh skill install --from-local` で `skills/` から取り込む。`.gitignore` 対象。
 
 ```
 skills/                         # canonical (編集・公開対象)
@@ -168,11 +168,15 @@ skills/                         # canonical (編集・公開対象)
       sanitize.ts               # テキストサニタイズ (共有 or re-export)
 
 .claude/skills/                 # 生成物 (.gitignore 対象、local_setup.sh で生成)
-  <skill-name>/...              # skills/ から複製されたコピー
+  <skill-name>/...              # skills/ から gh skill install --from-local で取得
   skill-creator/                # gh skill install で導入される外部 skill
 ```
 
-`skills/` を編集した後で Claude Code から最新版を試すには、`local_setup.sh` を再実行するか、`cp -R skills/. .claude/skills/` で再ステージする。
+`skills/<skill-name>/` を編集した後で Claude Code から最新版を試すには、対象 skill を再インストールする:
+
+```bash
+gh skill install . <skill-name> --from-local --agent claude-code --scope project --force
+```
 
 ### 公開 (gh skill publish)
 

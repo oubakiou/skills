@@ -31,11 +31,19 @@ echo "デフォルトskillをインストールします"
 gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
 
-# このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にステージする
-# .claude/skills/ は .gitignore 対象。dogfooding のために skills/ から都度コピーする
-echo "このリポジトリ自身の skill を .claude/skills/ にステージします"
-mkdir -p .claude/skills
-cp -R skills/. .claude/skills/
+# このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にインストールする
+# --from-local で現ワーキングツリーから直接インストールするため、ローカル編集が即反映される
+# .claude/skills/ は .gitignore 対象
+for skill in \
+  guarded-webfetch-claude \
+  guarded-webfetch-codex \
+  guarded-webfetch-gemini \
+  guarded-websearch-claude \
+  guarded-websearch-codex \
+  guarded-websearch-gemini \
+; do
+  gh skill install . "$skill" --from-local --agent claude-code --scope project --force
+done
 
 # python3はskill-creator 同梱の Python スクリプト (eval-viewer 等) を実行するために必要
 # bubblewrapはCodexに必要
