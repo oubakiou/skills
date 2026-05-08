@@ -1,8 +1,24 @@
+# 1. 編集者が generated コピー (skills/*/scripts/{sanitize,codex-jsonl}.ts) を
+#    直接編集していないかの早期検出。手順誤りを最初に教える。
+npm run sync-shared:check --silent || exit 1
+
+# 2. format / lint の自動修正
 vp check --fix
 
 # --fixによる変更がステージされていないファイルに残っている場合、再ステージして含める
 git diff --name-only --diff-filter=M | while IFS= read -r file; do
   git add "$file"
 done
+
+# 3. vp check --fix が shared/ の正本を書き換えた場合、コピー側へ再同期する。
+#    drift があれば sync-shared が黙ってコピーを更新し、続く git add で再ステージする。
+npm run sync-shared --silent
+git diff --name-only --diff-filter=M | while IFS= read -r file; do
+  git add "$file"
+done
+
+# 4. 最終ドリフト検証 (fail-closed)。
+#    手順 1 と 3 を経ても何らかの理由でズレが残っている場合に commit を止める保険。
+npm run sync-shared:check --silent || exit 1
 
 vp test

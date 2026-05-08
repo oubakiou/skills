@@ -95,7 +95,7 @@ skill の description は undertrigger を避けるためやや pushy に書く�
 
 ## 4. 動作環境と制約
 
-- **Node.js v23.6 以降が必須**（type stripping がデフォルト有効なので `node .claude/skills/guarded-webfetch-claude/scripts/sanitize.ts` で直接実行できる）。skill 実行時に最初にバージョンチェックを行い、満たさなければユーザーに通知して中止する。フォールバックは提供しない
+- **Node.js v23.6 以降が必須**（type stripping がデフォルト有効なので `node skills/guarded-webfetch-claude/scripts/sanitize.ts` で直接実行できる）。skill 実行時に最初にバージョンチェックを行い、満たさなければユーザーに通知して中止する。フォールバックは提供しない
 - **外部パッケージ依存ゼロ**（Node 標準 API のみ使用、`package.json` も不要、単体 `.ts` ファイルで配布）
 - **Claude Code 前提**（`claude -p` による隔離プロセスを使うため）。SDK / claude.ai への移植は将来対応
 - **認証は親プロセスの認証を継承**: `--bare` を使用しないため、Claude.ai ログイン済みの状態であれば追加の認証設定は不要

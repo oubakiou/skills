@@ -1,7 +1,10 @@
 /**
  * テキストコンテンツのサニタイザ
  * Unicode不可視文字・LLMプロンプトインジェクションマーカーを除去する
- * pipe-sanitize-gemini.ts から import して使用するライブラリモジュール
+ *
+ * 正本: shared/sanitize/sanitize.ts
+ * 各 guarded 系 skill の scripts/sanitize.ts は scripts/sync-shared.ts により
+ * この正本から自動生成されたコピー。編集は正本に対して行うこと。
  */
 
 export interface SanitizedDoc {
@@ -137,7 +140,7 @@ export const sanitize = (
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-webfetch-gemini/scripts/sanitize.ts
+ * @example vp test shared/sanitize/sanitize.ts
  */
 
 if (import.meta.vitest) {
@@ -359,6 +362,9 @@ if (import.meta.vitest) {
       })
 
       it('combining mark を大量に積んだ単一 grapheme でも処理コスト上限を維持する', () => {
+        // 単一 grapheme cluster ('a' + combining mark の連鎖) を 100,000 code unit
+        // 規模に膨らませた入力。grapheme 基準だと 1 grapheme 扱いで truncation を
+        // 素通りしてしまうが、code unit 基準では確実に 50,000 で打ち切る
         const text = `a${'́'.repeat(100_000)}`
         const doc = sanitize(url, url, text)
         expect(doc.text.length).toBeLessThanOrEqual(50_000)

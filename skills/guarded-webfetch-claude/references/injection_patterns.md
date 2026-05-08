@@ -3,7 +3,7 @@
 このドキュメントは sanitize.ts で検出対象とする既知パターンを記録・管理するためのものである。
 新しいモデルや攻撃手法が公開された際にパターンを見直し、必要に応じて sanitize.ts の `LLM_MARKERS` を更新する。
 
-本ファイルは **guarded-webfetch-claude / guarded-websearch-claude 両スキル共通の一次ソース**。`scripts/sanitize.ts` も同じく guarded-webfetch-claude 側で一元管理しており、guarded-websearch-claude は両者を re-export / 参照経由で共有する。**更新は必ず本ファイル側で行うこと**。
+本ファイルは **guarded-webfetch-claude / guarded-websearch-claude 両スキル共通の一次ソース**。`scripts/sanitize.ts` の正本は `shared/sanitize/sanitize.ts` にあり、各 skill の `scripts/sanitize.ts` は `scripts/sync-shared.ts` で配布された自動生成コピー。**パターンの追加・更新は本ファイルと `shared/sanitize/sanitize.ts` の双方に対して行い、`npm run sync-shared` でコピーを再生成すること**。
 
 ## 更新運用
 
@@ -18,11 +18,14 @@
 
 ### 更新手順
 
+sanitize.ts の正本は `shared/sanitize/sanitize.ts` で、各 skill の `scripts/sanitize.ts` は `scripts/sync-shared.ts` で配布された自動生成コピー。**編集は必ず正本側で行うこと**（自動生成コピーを編集すると `npm run sync-shared:check` で必ず検出されコミットがブロックされる）。
+
 1. 本ファイル該当カテゴリの表にパターン行を追加（または修正）。「追加日」列には ISO 日付（例: `2026-04-29`）を記載
-2. `.claude/skills/guarded-webfetch-claude/scripts/sanitize.ts` の `LLM_MARKERS` 配列に対応する正規表現エントリを追加
+2. `shared/sanitize/sanitize.ts` の `LLM_MARKERS` 配列に対応する正規表現エントリを追加
 3. 同ファイルの `import.meta.vitest` ブロック内 `neutralizeMarkers` describe 群に、新パターンの置換と `suspicious_patterns` 計上を検証するテストケースを追加
-4. `vp test .claude/skills/guarded-webfetch-claude/scripts/sanitize.ts --run` で in-source テストが通ることを確認
-5. 本ファイル末尾の「更新履歴」に変更概要を 1 行追記
+4. `vp test shared/sanitize/sanitize.ts --run` で in-source テストが通ることを確認
+5. `npm run sync-shared` を実行し、正本の変更を全 6 skill の `scripts/sanitize.ts` に反映
+6. 本ファイル末尾の「更新履歴」に変更概要を 1 行追記
 
 ### 設計上の注意
 

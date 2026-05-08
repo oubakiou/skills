@@ -176,7 +176,7 @@ const main = async (): Promise<void> => {
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts
+ * @example vp test skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts
  */
 
 const buildJsonl = (output: Record<string, unknown>): string =>

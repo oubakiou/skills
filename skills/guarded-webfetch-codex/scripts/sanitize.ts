@@ -1,11 +1,11 @@
 /**
  * テキストコンテンツのサニタイザ
  * Unicode不可視文字・LLMプロンプトインジェクションマーカーを除去する
- * WebFetch で取得済みのテキストを安全に処理するための軽量スクリプト
- * @example echo '<text>' | node sanitize.ts "<url>"
+ *
+ * 正本: shared/sanitize/sanitize.ts
+ * 各 guarded 系 skill の scripts/sanitize.ts は scripts/sync-shared.ts により
+ * この正本から自動生成されたコピー。編集は正本に対して行うこと。
  */
-
-import { realpathSync } from 'node:fs'
 
 export interface SanitizedDoc {
   requested_url: string
@@ -140,7 +140,7 @@ export const sanitize = (
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-webfetch-claude/scripts/sanitize.ts
+ * @example vp test shared/sanitize/sanitize.ts
  */
 
 if (import.meta.vitest) {
@@ -412,30 +412,4 @@ if (import.meta.vitest) {
       expect(doc.fetched_url).toBe('https://example.com/redirected')
     })
   })
-}
-
-// ---------- CLI ----------
-const isEntryFile = (): boolean => {
-  const [, entryPath] = process.argv
-  if (!entryPath) {
-    return false
-  }
-  return import.meta.url === `file://${realpathSync(entryPath)}`
-}
-
-if (isEntryFile()) {
-  const [url] = process.argv.slice(2)
-  if (!url) {
-    throw new Error("usage: echo '<text>' | sanitize.ts <url>")
-  }
-
-  const chunks: Buffer[] = []
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.from(chunk))
-  }
-  const text = Buffer.concat(chunks).toString('utf8')
-
-  const INDENT = 2
-  const json = JSON.stringify(sanitize(url, url, text), (_key, val: unknown) => val, INDENT)
-  process.stdout.write(`${json}\n`)
 }

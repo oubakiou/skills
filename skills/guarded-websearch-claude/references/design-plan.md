@@ -65,9 +65,9 @@ WebFetch（個別 URL のコンテンツ取得）と WebSearch（検索クエリ
 
 ### コード共有
 
-サニタイズロジック（sanitize.ts）は guarded-webfetch-claude 側で一元管理し、本スキルは `import` 経由で共有使用する（`scripts/sanitize.ts` は re-export のみ）。これによりパターン更新時の同期漏れを防ぐ。
+サニタイズロジック（sanitize.ts）は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` が各 skill の `scripts/sanitize.ts` に同一内容のコピーを配布する。本スキルの `scripts/sanitize.ts` もこの自動生成コピーであり、`shared/` 側を編集して `npm run sync-shared` を実行することで全 skill に反映する。`.githooks/pre-commit` が `npm run sync-shared:check` でドリフトを検出するため、コピーと正本の同期漏れは機械的に防がれる。
 
-**独立性に関するトレードオフ**: この方針により、本スキル (guarded-websearch-claude) は guarded-webfetch-claude が同一リポジトリ内に存在することを前提とする。guarded-webfetch-claude が削除・移動された場合、本スキルの sanitize.ts の import が解決できず動作しない。本スキルを単独で配布・移植する場合は、re-export を実体のコピーに差し替える必要がある。
+**独立性**: 各 skill の `scripts/sanitize.ts` は実体コピーであり、他 skill への import 依存を持たない。`gh skill install` で本スキル単独をインストールしても動作する（self-contained）。
 
 ### 典型的な連携フロー
 
@@ -118,7 +118,7 @@ main agent: 最終応答を生成
 guarded-webfetch-claude と同様の環境制約を持つ:
 
 - **Node.js v23.6 以降が必須**（type stripping でそのまま実行）
-- **外部パッケージ依存ゼロ**（sanitize.ts を guarded-webfetch-claude から import）
+- **外部パッケージ依存ゼロ**（Node 標準 API のみ使用、`package.json` も不要、単体 `.ts` ファイルで配布。sanitize.ts は `shared/sanitize/sanitize.ts` から `scripts/sync-shared.ts` で配布された自動生成コピー）
 - **Claude Code 前提**（`claude -p` による隔離プロセス）
 - **認証は親プロセスの認証を継承**
 - **隔離プロセスのモデルは指定しない**
@@ -157,7 +157,7 @@ guarded-websearch-claude/
 ├── scripts/
 │   ├── check-node-version.sh     # ステップ 0 で main agent が呼ぶ Node.js 23.6+ 事前チェック
 │   ├── quarantine-search.sh      # 隔離環境変数・cwd 切替・claude -p 起動・サニタイザ起動を集約
-│   ├── sanitize.ts               # guarded-webfetch-claude の sanitize.ts を re-export
+│   ├── sanitize.ts               # shared/sanitize/sanitize.ts から自動生成されたコピー
 │   └── pipe-sanitize-search.ts   # 隔離プロセス出力→sanitize→stdout パイプスクリプト
 └── references/
     ├── design-plan.md             # このドキュメント
@@ -166,7 +166,7 @@ guarded-websearch-claude/
     └── injection_patterns.md      # guarded-webfetch-claude のパターン集を共有参照
 ```
 
-sanitize.ts は guarded-webfetch-claude 側で一元管理し、本スキルは re-export 経由で import する（詳細はセクション 2 参照）。`injection_patterns.md` も同様に guarded-webfetch-claude 側を一次ソースとし、本スキル側は参照リンクのみを持つ。
+sanitize.ts は `shared/sanitize/sanitize.ts` を正本とし、各 skill の `scripts/sanitize.ts` は `scripts/sync-shared.ts` によって自動生成された同一内容のコピー（詳細はセクション 2 参照）。`injection_patterns.md` は guarded-webfetch-claude 側を一次ソースとし、本スキル側は参照リンクのみを持つ。
 
 ## 7. 実行フロー
 
@@ -245,7 +245,7 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 
 ## 8. サニタイザの処理
 
-guarded-webfetch-claude の sanitize.ts を共有使用する。検索結果の各 title・snippet に対して個別に `sanitize(url, url, text)` を呼び出す（検索結果の URL は隔離プロセス由来のみで CLI 引数に対応する URL がないため、`requested_url` と `fetched_url` は同一値で渡す）。
+`shared/sanitize/sanitize.ts` の正本から自動生成された `scripts/sanitize.ts`（webfetch-claude を含む全 6 skill で同一実装）を使う。検索結果の各 title・snippet に対して個別に `sanitize(url, url, text)` を呼び出す（検索結果の URL は隔離プロセス由来のみで CLI 引数に対応する URL がないため、`requested_url` と `fetched_url` は同一値で渡す）。
 
 処理層の詳細（Unicode 層・LLM マーカー無害化・量的制限）は guarded-webfetch-claude の design-plan.md セクション 7 を参照。
 
@@ -362,7 +362,7 @@ guarded-webfetch-claude の sanitize.ts を共有使用する。検索結果の�
 
 ## 11. 設計上の割り切り
 
-- **sanitize.ts の import 依存**: sanitize.ts は guarded-webfetch-claude 側で一元管理し、本スキルは re-export 経由で import する。パターン更新の同期漏れは防げるが、本スキルは guarded-webfetch-claude が同一リポジトリ内に存在しないと動作しない（独立性のトレードオフ）。単独配布時は re-export を実体のコピーに差し替える必要がある
+- **sanitize.ts の共有方式**: `shared/sanitize/sanitize.ts` を正本とし、各 skill の `scripts/sanitize.ts` は `scripts/sync-shared.ts` で配布された自動生成コピー。`.githooks/pre-commit` の `npm run sync-shared:check` が正本とコピーのドリフトを機械的に検出する。コピー実体を持つため本スキルは self-contained で、`gh skill install` 単独で動作する
 - **検索結果の URL はスキーム検証済みで通す**: `sanitizeSearchResults()` で各結果の URL スキームを検証し、`http:` / `https:` 以外のスキーム（`javascript:`, `file:`, `data:` 等）を持つ結果は除外する。除外件数は `aggregate_flags.filtered_unsafe_urls` に記録される。URL の内容自体のサニタイズは対象外だが、URL を actionable な推奨として出力する際は guarded-webfetch-claude を経由させる
 - **SEO ポイズニングは対象外**: 悪意ある URL が検索上位に表示されることによる誘導は、検索エンジン側の問題であり本スキルの対象外
 - **検索クエリの改竄は検証不能**: CLI 引数のクエリ上書きは出力の `query` フィールドの表示を保証するだけであり、隔離プロセスが実際に実行した検索クエリを検証する手段はない。webfetch のオリジン比較に相当する検証メカニズムが検索クエリには存在しないため、隔離プロセスの制約（`--tools "WebSearch"`, `--max-turns 3`, スキーマ強制）が実質的な防御線となる

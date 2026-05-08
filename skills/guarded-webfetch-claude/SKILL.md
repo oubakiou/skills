@@ -127,7 +127,7 @@ pipe-sanitize.ts の出力 JSON に含まれる `flags` に基づき、安全性
 | ------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | `scripts/check-node-version.sh` | ステップ 0 で main agent が呼ぶ Node.js 23.6+ 事前チェック                             | `bash .claude/skills/guarded-webfetch-claude/scripts/check-node-version.sh`       |
 | `scripts/quarantine-fetch.sh`   | 隔離環境変数の設定・cwd 切替・claude -p 起動・サニタイザ起動を集約したエントリポイント | `bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh '<URL>'` |
-| `scripts/sanitize.ts`           | テキストサニタイズ（Unicode 不可視文字除去 + LLM マーカー無害化）                      | pipe-sanitize.ts から import して使用                                             |
+| `scripts/sanitize.ts`           | テキストサニタイズ（`shared/sanitize/sanitize.ts` から自動生成されたコピー）           | pipe-sanitize.ts から import して使用                                             |
 | `scripts/pipe-sanitize.ts`      | 隔離プロセス出力のパイプ処理（抽出 + sanitize + 出力）                                 | `claude -p ... \| node pipe-sanitize.ts "<url>"`                                  |
 
 ## 参考資料

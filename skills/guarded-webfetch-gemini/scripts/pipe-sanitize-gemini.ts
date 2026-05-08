@@ -543,7 +543,7 @@ const buildGeminiWrapper = (
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-webfetch-gemini/scripts/pipe-sanitize-gemini.ts
+ * @example vp test skills/guarded-webfetch-gemini/scripts/pipe-sanitize-gemini.ts
  */
 
 if (import.meta.vitest) {

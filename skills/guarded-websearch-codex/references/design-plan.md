@@ -110,7 +110,7 @@ guarded-websearch-codex/
     └── sanitize.ts
 ```
 
-- `sanitize.ts` と `codex-jsonl.ts` は `guarded-webfetch-codex` 経由で既存実装を共有する
+- `sanitize.ts` は `shared/sanitize/sanitize.ts`、`codex-jsonl.ts` は `shared/codex-jsonl/codex-jsonl.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー
 - `check-node-version.sh` は main agent の事前チェックと quarantine スクリプトからのサブプロセス呼び出しの両方で使う
 - 一時ファイルと隔離用 cwd は `.temp/guarded-websearch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
@@ -174,7 +174,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## 8. サニタイザの処理
 
-`sanitize.ts` は fetch 版と同じ実装を共有する。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（webfetch-codex を含む全 6 skill で同一）。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
 
 検索結果固有の考慮事項:
 

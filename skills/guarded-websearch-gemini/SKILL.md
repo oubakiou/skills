@@ -160,9 +160,9 @@ pipe-sanitize-search-gemini.ts の出力 JSON は `aggregate_flags`（全結果�
 | ---------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `scripts/check-node-version.sh`          | ステップ 0 で main agent が呼ぶ Node.js 23.6+ 事前チェック                             | `bash .claude/skills/guarded-websearch-gemini/scripts/check-node-version.sh`                 |
 | `scripts/quarantine-search-gemini.sh`    | 隔離環境変数の設定・cwd 切替・gemini -p 起動・サニタイザ起動を集約したエントリポイント | `bash .claude/skills/guarded-websearch-gemini/scripts/quarantine-search-gemini.sh '<QUERY>'` |
-| `scripts/sanitize.ts`                    | guarded-webfetch-gemini の sanitize.ts を re-export（実体は共有）                      | pipe-sanitize-search-gemini.ts から import して使用                                          |
+| `scripts/sanitize.ts`                    | テキストサニタイズ（`shared/sanitize/sanitize.ts` から自動生成されたコピー）           | pipe-sanitize-search-gemini.ts から import して使用                                          |
 | `scripts/pipe-sanitize-search-gemini.ts` | Gemini ラッパー JSON → 検索結果抽出 → sanitize → stdout パイプスクリプト               | `gemini -p ... \| node --strip-types pipe-sanitize-search-gemini.ts "<query>"`               |
 
 ## 参考資料
 
-詳細な設計意図・脅威モデル・割り切り、および guarded-webfetch-gemini への依存（`scripts/sanitize.ts` の re-export と単独配布時の差し替え方針）については `references/design-plan.md` を参照。
+詳細な設計意図・脅威モデル・割り切り、および sanitize 実装の共有方針（`shared/sanitize/sanitize.ts` を正本とする自動生成コピー）については `references/design-plan.md` を参照。

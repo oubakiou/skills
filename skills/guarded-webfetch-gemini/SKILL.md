@@ -154,7 +154,7 @@ pipe-sanitize-gemini.ts の出力 JSON に含まれる `flags` に基づき、�
 | ------------------------------------ | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `scripts/check-node-version.sh`      | ステップ 0 で main agent が呼ぶ Node.js 23.6+ 事前チェック                             | `bash .claude/skills/guarded-webfetch-gemini/scripts/check-node-version.sh`              |
 | `scripts/quarantine-fetch-gemini.sh` | 隔離環境変数の設定・cwd 切替・gemini -p 起動・サニタイザ起動を集約したエントリポイント | `bash .claude/skills/guarded-webfetch-gemini/scripts/quarantine-fetch-gemini.sh '<URL>'` |
-| `scripts/sanitize.ts`                | テキストサニタイズ（Unicode 不可視文字除去 + LLM マーカー無害化）                      | pipe-sanitize-gemini.ts から import して使用                                             |
+| `scripts/sanitize.ts`                | テキストサニタイズ（`shared/sanitize/sanitize.ts` から自動生成されたコピー）           | pipe-sanitize-gemini.ts から import して使用                                             |
 | `scripts/pipe-sanitize-gemini.ts`    | Gemini ラッパー JSON のパース + 内側 JSON 抽出 + stats 検証 + sanitize + 出力          | `gemini -p ... \| node --strip-types pipe-sanitize-gemini.ts "<url>"`                    |
 
 ## 参考資料

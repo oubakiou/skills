@@ -177,10 +177,30 @@ vp check
 
 ### ディレクトリ構成
 
-スキルの編集対象は `skills/` 配下のみ。`.claude/skills/` は dogfooding (この repo を Claude Code で開いた際に自スキルを読み込ませる) のためのインストール先で、`local_setup.sh` が `gh skill install --from-local` で `skills/` から取り込む。`.gitignore` 対象。
+編集対象は役割によって 2 つに分かれる:
+
+- **公開対象 (`skills/`)**: 各 skill の SKILL.md / references / 固有スクリプト (`pipe-sanitize-*.ts`, `quarantine-*.sh` 等) を編集する。`gh skill publish` でリリースされる canonical
+- **共有実装の編集対象 (`shared/`)**: 複数 skill で共有する実装の正本 (`sanitize.ts`, `codex-jsonl.ts`)。ロジック更新はここで行い、`npm run sync-shared` で各 skill にコピーを配布する
+
+**直接編集してはいけないファイル**: `skills/<skill-name>/scripts/sanitize.ts` と `skills/<skill-name>/scripts/codex-jsonl.ts` は `shared/` から `scripts/sync-shared.ts` で自動生成されたコピー。直接編集すると `.githooks/pre-commit` の `sync-shared:check` で検出されコミットがブロックされる。
+
+`.claude/skills/` は dogfooding (この repo を Claude Code で開いた際に自スキルを読み込ませる) のためのインストール先で、`local_setup.sh` が `gh skill install --from-local` で `skills/` から取り込む。`.gitignore` 対象。
+
+各 skill の `scripts/sanitize.ts` / `codex-jsonl.ts` は自動生成された実体コピーとして git 管理下に置かれるため、各 skill は self-contained で動作する（`gh skill install` 単独でインストール可能）。
+
+凡例: 注釈なしのファイルは通常の編集対象。`⛔` は編集禁止 (自動生成)、`📦` はビルド生成物。
 
 ```
-skills/                         # canonical (編集・公開対象)
+shared/                         # 共有実装の正本
+  sanitize/
+    sanitize.ts                 # テキストサニタイズ (全 6 skill 共通)
+  codex-jsonl/
+    codex-jsonl.ts              # Codex JSONL 抽出 (codex 系 2 skill 共通)
+
+scripts/
+  sync-shared.ts                # shared/ → 各 skill scripts/ へのコピー / 検証ツール
+
+skills/                         # canonical (gh skill publish 対象)
   <skill-name>/
     SKILL.md                    # スキル定義 (フロントマター + 実行フロー)
     references/
@@ -190,12 +210,19 @@ skills/                         # canonical (編集・公開対象)
       check-node-version.sh     # Node.js バージョン事前チェック
       quarantine-*.sh           # 隔離プロセス起動のエントリポイント
       pipe-sanitize-*.ts        # パイプ接続のサニタイザ (テスト内蔵)
-      sanitize.ts               # テキストサニタイズ (共有 or re-export)
+      sanitize.ts               # ⛔ shared/sanitize/sanitize.ts から自動生成
+      codex-jsonl.ts            # ⛔ (codex 系のみ) shared/codex-jsonl/codex-jsonl.ts から自動生成
 
-.claude/skills/                 # 生成物 (.gitignore 対象、local_setup.sh で生成)
+.claude/skills/                 # 📦 .gitignore 対象、local_setup.sh で生成
   <skill-name>/...              # skills/ から gh skill install --from-local で取得
   skill-creator/                # gh skill install で導入される外部 skill
 ```
+
+`shared/` の正本を編集したら `npm run sync-shared` でコピーを再生成する。`.githooks/pre-commit` が以下の三段で保証する:
+
+1. **編集前の整合性チェック** (`sync-shared:check`): generated コピーを直接編集していないかを検出
+2. **lint 後の自動再同期** (`sync-shared`): `vp check --fix` が `shared/` を書き換えた場合にコピーを自動的に追従
+3. **最終ドリフト検証** (`sync-shared:check`): 上記を経てもズレが残っていれば fail-closed でコミットをブロック
 
 `skills/<skill-name>/` を編集した後で Claude Code から最新版を試すには、対象 skill を再インストールする:
 

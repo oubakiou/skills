@@ -142,7 +142,7 @@ export const extractRawText = (data: unknown): { url: string; rawText: string } 
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-webfetch-claude/scripts/pipe-sanitize.ts
+ * @example vp test skills/guarded-webfetch-claude/scripts/pipe-sanitize.ts
  */
 
 if (import.meta.vitest) {

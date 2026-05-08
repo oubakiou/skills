@@ -133,9 +133,9 @@ pipe-sanitize-search.ts の出力 JSON は `aggregate_flags`（全結果の集�
 | --------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `scripts/check-node-version.sh`   | ステップ 0 で main agent が呼ぶ Node.js 23.6+ 事前チェック                             | `bash .claude/skills/guarded-websearch-claude/scripts/check-node-version.sh`          |
 | `scripts/quarantine-search.sh`    | 隔離環境変数の設定・cwd 切替・claude -p 起動・サニタイザ起動を集約したエントリポイント | `bash .claude/skills/guarded-websearch-claude/scripts/quarantine-search.sh '<QUERY>'` |
-| `scripts/sanitize.ts`             | guarded-webfetch-claude の sanitize.ts を re-export（実体は共有）                      | pipe-sanitize-search.ts から import して使用                                          |
+| `scripts/sanitize.ts`             | テキストサニタイズ（`shared/sanitize/sanitize.ts` から自動生成されたコピー）           | pipe-sanitize-search.ts から import して使用                                          |
 | `scripts/pipe-sanitize-search.ts` | 隔離プロセス出力→sanitize→stdout パイプスクリプト                                      | `claude -p ... \| node pipe-sanitize-search.ts "<query>"`                             |
 
 ## 参考資料
 
-詳細な設計意図・脅威モデル・割り切り、および guarded-webfetch-claude への依存（`scripts/sanitize.ts` の re-export と単独配布時の差し替え方針）については `references/design-plan.md` セクション 2 / 11 を参照。
+詳細な設計意図・脅威モデル・割り切り、および sanitize 実装の共有方針（`shared/sanitize/sanitize.ts` を正本とする自動生成コピー）については `references/design-plan.md` セクション 2 / 11 を参照。

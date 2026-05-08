@@ -118,8 +118,8 @@ guarded-webfetch-codex/
     └── sanitize.ts
 ```
 
-- `sanitize.ts` は `guarded-webfetch-claude` の実装を re-export して共有する
-- `codex-jsonl.ts` は Codex JSONL から最終 `agent_message` を取り出す共通ユーティリティで、`guarded-websearch-codex` からも re-export する
+- `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー（全 6 skill で同一実装）
+- `codex-jsonl.ts` は Codex JSONL から最終 `agent_message` を取り出す共通ユーティリティ。`shared/codex-jsonl/codex-jsonl.ts` を正本とし、`guarded-websearch-codex` にも同じく自動生成コピーが配布される
 - `check-node-version.sh` は main agent の事前チェックと quarantine スクリプトからのサブプロセス呼び出しの両方で使う
 - 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
@@ -186,7 +186,7 @@ Codex 子に与えるプロンプトでは次を要求する。
 
 ## 7. サニタイザの処理層
 
-`sanitize.ts` は Claude 版と同じ実装を共有する。対象は Codex 子が返した本文テキストであり、以下の 2 層に特化する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（Claude / Gemini を含む全 6 skill で同一）。対象は Codex 子が返した本文テキストであり、以下の 2 層に特化する。
 
 ### Unicode 層
 

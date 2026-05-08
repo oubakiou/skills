@@ -264,7 +264,7 @@ export const sanitizeSearchResults = (
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-websearch-claude/scripts/pipe-sanitize-search.ts
+ * @example vp test skills/guarded-websearch-claude/scripts/pipe-sanitize-search.ts
  */
 
 if (import.meta.vitest) {

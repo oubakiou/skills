@@ -520,7 +520,7 @@ const buildGeminiWrapper = (
 
 /**
  * MARK: In-Source Testing
- * @example vp test .claude/skills/guarded-websearch-gemini/scripts/pipe-sanitize-search-gemini.ts
+ * @example vp test skills/guarded-websearch-gemini/scripts/pipe-sanitize-search-gemini.ts
  */
 
 if (import.meta.vitest) {

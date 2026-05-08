@@ -227,7 +227,7 @@ guarded-webfetch-gemini/
     └── sanitize.ts
 ```
 
-- `sanitize.ts` は `guarded-webfetch-claude` と同等のロジックを持つ独立したコピーとして保持する。異なる LLM 向け skill 間での import / re-export は行わない（skill 単体での独立性・可搬性を優先）
+- `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー（Claude / Codex 系を含む全 6 skill で同一実装）。各 skill が実体コピーを持つことで skill 単体での独立性・可搬性を保つ
 - `check-node-version.sh` は main agent の事前チェックと `quarantine-fetch-gemini.sh` の冒頭からのサブプロセス呼び出しの両方で使う多層防御 (claude / codex 版と同じ運用)
 - 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-gemini/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する。並列起動 (最大 5 件) と「毎回クリーン」を両立し、`GEMINI.md` 等の前回残留ファイルが次回プロセスに混入しないようにするため
 - `quarantine-fetch-policy.toml` は Gemini Policy Engine 用の TOML ファイル
@@ -375,9 +375,9 @@ PoC で確認した重要事実:
 
 ## 7. サニタイザの処理層
 
-`sanitize.ts` は `guarded-webfetch-claude` と同等のロジックを持つ独立したコピーとして本スキル内に保持する（異なる LLM 向け skill 間での import / re-export は行わない）。対象は Gemini 子が返した本文テキストであり、以下の 2 層に特化する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（Claude / Codex 系を含む全 6 skill で同一）。対象は Gemini 子が返した本文テキストであり、以下の 2 層に特化する。
 
-`had_invisible_chars` フラグの正確な意味、`[FILTERED:<カテゴリ>]` / `[ESCAPED:]` の再帰エスケープ順序、grapheme 境界より code unit 境界を優先する根拠 (combining mark スパムによる NFKC / regex の処理コスト跳ね上げ対策) など、設計の詳細は `guarded-webfetch-claude/references/design-plan.md` §7 を参照。ロジックは同等だが、ファイルとしては独立管理する。
+`had_invisible_chars` フラグの正確な意味、`[FILTERED:<カテゴリ>]` / `[ESCAPED:]` の再帰エスケープ順序、grapheme 境界より code unit 境界を優先する根拠 (combining mark スパムによる NFKC / regex の処理コスト跳ね上げ対策) など、設計の詳細は `guarded-webfetch-claude/references/design-plan.md` §7 を参照。
 
 ### Unicode 層
 
@@ -552,7 +552,7 @@ CLI に強制させる手段は無いが、`pipe-sanitize-gemini.ts` が手書�
 9. **GEMINI.md 干渉**: 隔離 cwd 配下に `GEMINI.md` が無い前提が崩れた場合に検出（`ls` チェック）
 10. **環境チェック**: Node.js 23.6 未満の環境 → 処理を開始せず、`check-node-version.sh` が exit code 3 で終了する
 11. **Policy tier deny の検出**: ユーザー側 `~/.gemini/policies/` で `web_fetch` を deny した状態で実行 → `stats.tools.byName.web_fetch.count === 0` (または `web_fetch` キー自体が不在) を `pipe-sanitize-gemini.ts` が検出し、exit code 4 で終了。main agent はユーザーに User tier policy の確認を案内する
-12. **`[FILTERED]` / `[ESCAPED:]` 偽装攻撃**: sanitize.ts のテストで `[FILTERED]` / `[ESCAPED:FILTERED]` がそれぞれ `[ESCAPED:FILTERED]` / `[ESCAPED:ESCAPED:FILTERED]` に再帰エスケープされることを確認 (claude 版と共有のため、実体テストは guarded-webfetch-claude 側で実施)
+12. **`[FILTERED]` / `[ESCAPED:]` 偽装攻撃**: sanitize.ts のテストで `[FILTERED]` / `[ESCAPED:FILTERED]` がそれぞれ `[ESCAPED:FILTERED]` / `[ESCAPED:ESCAPED:FILTERED]` に再帰エスケープされることを確認（実体テストは正本の `shared/sanitize/sanitize.ts` 側で in-source test として実施）
 13. **並列処理の部分失敗**: 5 件中 2 件がいずれかの段階で失敗 → 成功した 3 件で応答が生成され、失敗した 2 件がユーザーに報告される
 14. **`pipe-sanitize-gemini.ts` のクラッシュ耐性**: 不正な UTF-8 バイト列 (TextDecoder が `U+FFFD` に置換) や極端に長い行を含むテキストを入力した場合 → exit code が非 0 になり、main agent は該当 URL の処理を中止
 15. **タイムアウト**: 応答に 60 秒以上かかる場合 → `timeout` により exit code 124 で終了し、main agent がユーザーに通知する

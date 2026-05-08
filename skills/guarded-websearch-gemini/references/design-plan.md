@@ -82,9 +82,9 @@ webfetch-gemini では `web_fetch` のローカル fallback が主要な Gemini 
 
 ### sanitize.ts の共有と独立性
 
-本スキルの `sanitize.ts` は `guarded-webfetch-gemini` の実装を re-export する。同一 LLM ファミリ（Gemini 系）のスキル間では共有し、異なる LLM ファミリ（Claude / Codex）からは import しない方針を採る。
+本スキルの `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー。Claude / Codex 系を含む全 6 skill が同一実装を共有しつつ、各 skill が実体コピーを持つことで `gh skill install` 単独で動作する（self-contained）。
 
-単独配布が必要になった場合は、re-export を直接コピーに差し替える。
+`.githooks/pre-commit` の `npm run sync-shared:check` が正本とコピーのドリフトを機械的に検出するため、共有実装の更新を skill 横断で漏れなく反映できる。
 
 ## 3. トリガー条件
 
@@ -143,7 +143,7 @@ guarded-websearch-gemini/
     └── sanitize.ts
 ```
 
-- `sanitize.ts` は `guarded-webfetch-gemini` の sanitize.ts を re-export する（同一 LLM ファミリ内での共有）
+- `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とする自動生成コピー（全 6 skill 共通実装）
 - `check-node-version.sh` は main agent の事前チェックと `quarantine-search-gemini.sh` の冒頭チェックの両方で使う多層防御
 - 一時ファイルや隔離用 cwd は `.temp/guarded-websearch-gemini/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する
 - `quarantine-search-policy.toml` は Gemini Policy Engine 用の TOML ファイル（`google_web_search` のみ allow）
@@ -197,7 +197,7 @@ bash .claude/skills/guarded-websearch-gemini/scripts/quarantine-search-gemini.sh
 
 ## 7. サニタイザの処理層
 
-`sanitize.ts` は `guarded-webfetch-gemini` の実装を re-export する。検索結果の title / snippet それぞれに適用する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装。検索結果の title / snippet それぞれに適用する。
 
 処理層の詳細は `guarded-webfetch-gemini/references/design-plan.md` §7 を参照。
 
@@ -279,7 +279,7 @@ priority = 200
 - **検索結果の URL は未検証**: 検索結果に含まれる URL は Gemini 子の自己申告であり、実在検証やオリジン検証は行わない。actionable な推奨として出力する際は `guarded-webfetch-gemini` 経由でコンテンツを取得させる
 - **クエリ検証不能**: CLI 引数のクエリは出力の `query` フィールドに固定するが、隔離プロセスが実際に実行したクエリを検証する手段はない。`reported_query` とのサニタイズ後比較で差異を検出するが、Gemini がクエリを言い換えて実行する正常ケースも query_mismatch として検出される
 - **NFKC は大文字小文字を畳まない**: "AI News" と "AI news" のような case 違いは `query_mismatch` が立つ。検知漏れより過剰検知側に倒す設計
-- **sanitize.ts の re-export**: `guarded-webfetch-gemini` の sanitize.ts を re-export する依存構造のため、webfetch-gemini が存在しない環境では動作しない
+- **sanitize.ts の共有方式**: `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で各 skill の `scripts/sanitize.ts` に同一内容のコピーを配布する。コピー実体を持つため本スキルは self-contained で、`gh skill install` 単独で動作する。`.githooks/pre-commit` がドリフトを機械的に検出する
 
 ## 11. 既存スキルとの比較
 
@@ -289,13 +289,12 @@ guarded-websearch 系 3 スキルに共通する性質（websearch 固有の項�
 
 - **クエリ検証**: 3 スキルとも CLI 引数のクエリと隔離プロセス自己申告 `reported_query` を NFKC 比較し `query_mismatch` フラグで検知
 - **出力構造**: `aggregate_flags`（全結果の集計）と各 `results[i]` 内の `title_flags` / `snippet_flags`（個別）の二層構造
-- **sanitize.ts**: いずれも対応する webfetch 系スキルの sanitize.ts を re-export（websearch-gemini は webfetch-gemini に依存）。単独配布する際の差し替え方針は §10 の割り切りを参照
+- **sanitize.ts**: 全 6 skill が `shared/sanitize/sanitize.ts` を正本とする自動生成コピーを `scripts/sanitize.ts` に持ち、実装は同一。各 skill は self-contained で単独インストール可能
 
 ## 12. 将来的な拡張候補
 
 - **Gemini の構造化出力対応**: 将来 CLI で `--json-schema` 相当が追加されたら採用し、出力スキーマ強度を引き上げる
 - **検索結果の重複排除**: 同一 URL の重複結果を検出・除外する機能
-- **sanitize.ts の独立化**: 単独配布が必要になった場合に re-export を直接コピーに差し替える
 
 ## 13. 残課題と未確定事項
 

@@ -79,7 +79,7 @@ bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<�
 - `scripts/quarantine-fetch-codex.sh`: Codex 子起動とフォールバック制御
 - `scripts/check-node-version.sh`: Node.js バージョン事前チェック (quarantine からも呼ばれる)
 - `scripts/pipe-sanitize-codex.ts`: Codex JSONL 出力の抽出と sanitize 実行
-- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ
-- `scripts/sanitize.ts`: 既存 sanitize 実装の re-export
+- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ (`shared/codex-jsonl/codex-jsonl.ts` から自動生成されたコピー)
+- `scripts/sanitize.ts`: テキストサニタイズ (`shared/sanitize/sanitize.ts` から自動生成されたコピー)
 - `references/fetch-output-schema.json`: Codex 用出力スキーマ
 - `references/design-plan.md`: 設計計画

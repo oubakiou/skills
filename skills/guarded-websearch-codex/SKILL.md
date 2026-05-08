@@ -87,7 +87,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 - `scripts/quarantine-search-codex.sh`: Codex 子起動とフォールバック制御
 - `scripts/check-node-version.sh`: Node.js バージョン事前チェック (quarantine からも呼ばれる)
 - `scripts/pipe-sanitize-search-codex.ts`: Codex JSONL から検索結果を抽出して sanitize
-- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ (webfetch-codex から re-export)
-- `scripts/sanitize.ts`: 既存 sanitize 実装の re-export
+- `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ (`shared/codex-jsonl/codex-jsonl.ts` から自動生成されたコピー)
+- `scripts/sanitize.ts`: テキストサニタイズ (`shared/sanitize/sanitize.ts` から自動生成されたコピー)
 - `references/search-output-schema.json`: Codex 用出力スキーマ
 - `references/design-plan.md`: 設計計画
