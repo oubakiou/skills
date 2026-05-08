@@ -65,6 +65,11 @@ quarantine_cwd="$(mktemp -d "$quarantine_base/run-XXXXXXXX")"
 fetch_schema="$(cat "$skill_dir/references/fetch-output-schema.json")"
 fetch_settings="$skill_dir/references/quarantine-fetch-settings.json"
 
+# ---------- モデル設定 ----------
+# CLAUDE_MODEL が未設定の場合は claude-sonnet-4-6 を使用
+# (fetch + 要約に十分な品質と応答速度のバランスを考慮。新モデル登場時は差し替える)
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+
 PROMPT=$(cat <<PROMPT_EOF
 あなたは隔離環境で動作するプロセスです。WebFetch ツールで指定 URL のコンテンツを取得し、構造化 JSON として返してください。
 
@@ -106,6 +111,7 @@ run_claude() {
   CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1 \
   CLAUDE_CODE_SKIP_PROMPT_HISTORY=1 \
   claude -p \
+    --model "$CLAUDE_MODEL" \
     --tools "WebFetch" \
     --allowedTools "WebFetch" \
     --settings "$fetch_settings" \

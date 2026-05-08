@@ -62,6 +62,11 @@ trap 'rm -rf "$QUARANTINE_CWD"' EXIT
 FETCH_SCHEMA="$SKILL_DIR/references/fetch-output-schema.json"
 PIPE_SANITIZER="$SKILL_DIR/scripts/pipe-sanitize-codex.ts"
 
+# ---------- モデル設定 ----------
+# CODEX_MODEL が未設定の場合は gpt-5.4-mini を使用
+# (fetch + 要約用途における応答速度とコストのバランスを考慮。新モデル登場時は差し替える)
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.4-mini}"
+
 PROMPT=$(cat <<PROMPT_EOF
 指定された URL の本文テキストを取得し、JSON オブジェクトのみを返してください。
 
@@ -85,6 +90,7 @@ PROMPT_EOF
 
 run_codex() {
   codex --search exec \
+    -m "$CODEX_MODEL" \
     --skip-git-repo-check \
     --ephemeral \
     --json \

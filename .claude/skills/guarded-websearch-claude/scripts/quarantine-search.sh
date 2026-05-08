@@ -58,6 +58,11 @@ quarantine_cwd="$(mktemp -d "$quarantine_base/run-XXXXXXXX")"
 search_schema="$(cat "$skill_dir/references/search-output-schema.json")"
 search_settings="$skill_dir/references/quarantine-search-settings.json"
 
+# ---------- モデル設定 ----------
+# CLAUDE_MODEL が未設定の場合は claude-sonnet-4-6 を使用
+# (search 結果の整形に十分な品質と応答速度のバランスを考慮。新モデル登場時は差し替える)
+CLAUDE_MODEL="${CLAUDE_MODEL:-claude-sonnet-4-6}"
+
 PROMPT=$(cat <<PROMPT_EOF
 あなたは隔離環境で動作するプロセスです。WebSearch ツールで指定されたクエリの検索を実行し、構造化 JSON として返してください。
 
@@ -103,6 +108,7 @@ run_claude() {
   CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1 \
   CLAUDE_CODE_SKIP_PROMPT_HISTORY=1 \
   claude -p \
+    --model "$CLAUDE_MODEL" \
     --tools "WebSearch" \
     --allowedTools "WebSearch" \
     --settings "$search_settings" \
