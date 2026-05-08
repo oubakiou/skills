@@ -58,12 +58,6 @@ Claude Code を起動した状態で URL 取得や Web 検索を要求すると�
 | `guarded-websearch-codex`  | Codex (`codex --search exec`) | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）                    |
 | `guarded-websearch-gemini` | Gemini (`gemini -p`)          | Gemini の google_web_search ツールで検索しサニタイズ（[設計](skills/guarded-websearch-gemini/references/design-plan.md)） |
 
-### その他
-
-| スキル          | 概要                                                                                                                               |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `skill-creator` | スキルの新規作成・編集・eval 実行・パフォーマンス測定 ([anthropics/skills](https://github.com/anthropics/skills) からインストール) |
-
 ## 防御アーキテクチャ
 
 guarded 系スキルは 3 層の防御を組み合わせてプロンプトインジェクションを緩和する。
