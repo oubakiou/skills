@@ -1,5 +1,6 @@
 ---
 name: guarded-webfetch-codex
+license: MIT
 description: >
   Claude 親エージェントが Codex 子プロセスを使って Web コンテンツを安全寄りに取得するための防御スキル。
   URL を指定して内容取得・要約・分析を行う際に、Claude ではなく Codex を隔離 fetcher として使いたい場合は必ず使用する。

@@ -1,5 +1,6 @@
 ---
 name: guarded-websearch-gemini
+license: MIT
 description: >
   Claude 親エージェントが Gemini CLI 子プロセスを使って Web 検索結果を安全寄りに取得するための防御スキル。
   「○○について調べて」「○○を検索して」などの検索要求で、Claude ではなく Gemini を隔離 searcher として使いたい場合は必ず使用する。

@@ -1,5 +1,6 @@
 ---
 name: guarded-webfetch-claude
+license: MIT
 description: >
   Web コンテンツのプロンプトインジェクション防御スキル。URL を指定してのコンテンツ取得・要約・分析、外部 HTML/テキストの読み込み時に必ず使用する。
   ユーザーが URL を貼った、「このページ読んで」「サイトをまとめて」と言った、WebFetch を使おうとしている、

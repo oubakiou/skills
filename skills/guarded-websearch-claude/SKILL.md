@@ -1,5 +1,6 @@
 ---
 name: guarded-websearch-claude
+license: MIT
 description: >
   Web 検索結果のプロンプトインジェクション防御スキル。WebSearch ツールを使用する検索操作に特化。
   「○○について調べて」「○○を検索して」等の Web 検索要求時に必ず使用する。

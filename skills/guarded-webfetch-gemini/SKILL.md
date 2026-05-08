@@ -1,5 +1,6 @@
 ---
 name: guarded-webfetch-gemini
+license: MIT
 description: >
   Claude 親エージェントが Gemini CLI 子プロセスを使って Web コンテンツを安全寄りに取得するための防御スキル。
   URL を指定して内容取得・要約・分析を行う際に、Claude ではなく Gemini を隔離 fetcher として使いたい場合は必ず使用する。
