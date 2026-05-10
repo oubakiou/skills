@@ -82,7 +82,7 @@ main agent (Claude Code)
   main agent: flags に基づく安全性判定        ← 層 3: 行動制御 (ソフト)
 ```
 
-1. **プロセス分離 + ツール制限 (ハード)** — 隔離子プロセスは許可されたツールのみ使用可能。生の Web コンテンツは子プロセス内に閉じ込められる
+1. **プロセス分離 + ツール制限 (ハード)** — 隔離子プロセス内に生の Web コンテンツを閉じ込め、各 CLI / policy の制約下で取得させる
 2. **静的サニタイズ (ハード)** — NFKC 正規化、不可視 Unicode 除去、LLM チャットテンプレートマーカーの `[FILTERED]` 置換をパイプ内で実行
 3. **安全性フラグによる行動制御 (ソフト)** — `suspicious_patterns` 検出時はユーザー確認まで actionable な出力を抑制
 
@@ -92,20 +92,20 @@ main agent (Claude Code)
 
 上記 3 層を、各 guarded 系スキルがどの仕組みで実現しているかをまとめる。webfetch 系の例で示すが、websearch 系も実装パターンは同じ（ツール固定対象が `WebSearch` / `google_web_search` に変わるのみ）。
 
-| 観点                     | guarded-\*-claude                                               | guarded-\*-codex                                         | guarded-\*-gemini                                                        |
-| ------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
-| 子コマンド               | `claude -p`                                                     | `codex --search exec`                                    | `gemini -p`                                                              |
-| 出力形式                 | `--output-format json`                                          | `--json` JSONL                                           | `-o json` 固定ラッパー                                                   |
-| 出力スキーマ強制         | あり (`--json-schema`)                                          | あり (`--output-schema`)                                 | 無し（プロンプト指示 + 受信側検証）                                      |
-| ツール固定               | `--allowedTools "WebFetch"` / `"WebSearch"`                     | プロンプト + sandbox（CLI 直の固定なし）                 | Policy Engine TOML で `*` deny + `web_fetch` / `google_web_search` allow |
-| Sandbox                  | OS レベル sandbox なし (env + permission deny + cwd 切替の多層) | `--sandbox read-only` / `workspace-write` フォールバック | `--sandbox` + gVisor (runsc 利用可能時のみ)                              |
-| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                          | プロンプトと sandbox で抑制                              | Policy で `mcp_*` deny                                                   |
-| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                                   | cwd 切替で `GEMINI.md` を含まない位置に                                  |
-| Max turns / タイムアウト | `--max-turns 3`                                                 | デフォルトの試行回数                                     | `timeout 60` (プロセスレベル 60 秒)                                      |
-| ローカル fallback リスク | 無し                                                            | 無し                                                     | あり（`web_fetch` の URL API 失敗時）                                    |
-| 認証                     | Claude.ai OAuth（親継承）または `ANTHROPIC_API_KEY`             | ChatGPT ログイン または `OPENAI_API_KEY`                 | Google アカウント OAuth または `GEMINI_API_KEY` / `GOOGLE_API_KEY` / ADC |
-| ツール権限の強さ         | ハード                                                          | 準ハード                                                 | ハード（Policy Engine による強制）                                       |
-| 出力スキーマ強度         | ハード                                                          | ハード                                                   | ソフト                                                                   |
+| 観点                     | guarded-\*-claude                                               | guarded-\*-codex                         | guarded-\*-gemini                                                        |
+| ------------------------ | --------------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
+| 子コマンド               | `claude -p`                                                     | `codex --search exec`                    | `gemini -p`                                                              |
+| 出力形式                 | `--output-format json`                                          | `--json` JSONL                           | `-o json` 固定ラッパー                                                   |
+| 出力スキーマ強制         | あり (`--json-schema`)                                          | あり (`--output-schema`)                 | 無し（プロンプト指示 + 受信側検証）                                      |
+| ツール固定               | `--allowedTools "WebFetch"` / `"WebSearch"`                     | プロンプト + sandbox（CLI 直の固定なし） | Policy Engine TOML で `*` deny + `web_fetch` / `google_web_search` allow |
+| Sandbox                  | OS レベル sandbox なし (env + permission deny + cwd 切替の多層) | `--sandbox read-only` 固定               | `--sandbox` + gVisor (runsc 利用可能時のみ)                              |
+| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                          | プロンプトと sandbox で抑制              | Policy で `mcp_*` deny                                                   |
+| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                              | デフォルトで読まれない                   | cwd 切替で `GEMINI.md` を含まない位置に                                  |
+| Max turns / タイムアウト | `--max-turns 3`                                                 | デフォルトの試行回数                     | `timeout 60` (プロセスレベル 60 秒)                                      |
+| ローカル fallback リスク | 無し                                                            | 無し                                     | あり（`web_fetch` の URL API 失敗時）                                    |
+| 認証                     | Claude.ai OAuth（親継承）または `ANTHROPIC_API_KEY`             | ChatGPT ログイン または `OPENAI_API_KEY` | Google アカウント OAuth または `GEMINI_API_KEY` / `GOOGLE_API_KEY` / ADC |
+| ツール権限の強さ         | ハード                                                          | 準ハード                                 | ハード（Policy Engine による強制）                                       |
+| 出力スキーマ強度         | ハード                                                          | ハード                                   | ソフト                                                                   |
 
 総評:
 
