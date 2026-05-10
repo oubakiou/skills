@@ -51,6 +51,9 @@ const findLastAgentMessage = (events: unknown[]): string | undefined => {
   return last.item.text
 }
 
+const findLastAgentMessageIndex = (events: unknown[]): number =>
+  events.findLastIndex(isAgentMessageEvent)
+
 const findLastErrorMessage = (events: unknown[]): string | undefined => {
   const last = events.findLast(isErrorEvent)
   if (typeof last === 'undefined') {
@@ -59,14 +62,25 @@ const findLastErrorMessage = (events: unknown[]): string | undefined => {
   return last.message
 }
 
+const findLastErrorIndex = (events: unknown[]): number => events.findLastIndex(isErrorEvent)
+
 /**
  * JSONL から最終 agent_message のテキストを取り出す。
+ * agent_message より後ろに error イベントがある場合も失敗として扱う。
  * agent_message が見つからない場合、error イベントがあればそのメッセージを含めて throw し、
  * それも無ければ汎用エラーで throw する (fail-closed)。
  */
 export const extractLastAgentMessage = (jsonl: string): string => {
   const events = parseJsonlEvents(jsonl)
+  const lastMessageIndex = findLastAgentMessageIndex(events)
+  const lastErrorIndex = findLastErrorIndex(events)
   const lastMessage = findLastAgentMessage(events)
+  if (lastErrorIndex > lastMessageIndex) {
+    const lastError = findLastErrorMessage(events)
+    if (typeof lastError === 'string') {
+      throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
+    }
+  }
   if (typeof lastMessage === 'string') {
     return lastMessage
   }
@@ -113,6 +127,22 @@ if (import.meta.vitest) {
     it('error イベントしかない場合はそのメッセージを含めて throw する', () => {
       const input = '{"type":"error","message":"boom"}'
       expect(() => extractLastAgentMessage(input)).toThrow('boom')
+    })
+
+    it('agent_message の後ろに error があれば fail-closed する', () => {
+      const input = [
+        '{"type":"item.completed","item":{"type":"agent_message","text":"partial"}}',
+        '{"type":"error","message":"late failure"}',
+      ].join('\n')
+      expect(() => extractLastAgentMessage(input)).toThrow('late failure')
+    })
+
+    it('error の後に agent_message があれば最後の agent_message を返す', () => {
+      const input = [
+        '{"type":"error","message":"transient failure"}',
+        '{"type":"item.completed","item":{"type":"agent_message","text":"recovered"}}',
+      ].join('\n')
+      expect(extractLastAgentMessage(input)).toBe('recovered')
     })
 
     it('agent_message も error も無ければ汎用エラーで throw する', () => {
