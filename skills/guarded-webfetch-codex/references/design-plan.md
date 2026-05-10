@@ -100,7 +100,7 @@ Codex 版の重要な制約:
 - `codex exec` には Claude 版の `--allowedTools "WebFetch"` に相当する細粒度のツール固定が見えていない
 - `--search` は親 `codex` コマンドに付与し、`exec` サブコマンドに Web 取得能力を渡す必要がある
 - `--output-schema` は Claude 版の JSON Schema より厳格で、`properties` にあるキーをすべて `required` に含める必要がある
-- 環境によっては read-only sandbox で Codex セッション初期化が失敗するため、限定的な `workspace-write` フォールバックが必要になる
+- `read-only` を唯一の sandbox 方針とし、失敗時も追加権限には昇格しない
 
 ## 5. ディレクトリ構成
 
@@ -144,8 +144,8 @@ bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<�
 1. Node.js と `codex` CLI の存在確認
 2. URL の入口検証 (`http://` / `https://` プレフィクス、バッククォート / `$()`、制御文字) を実施
 3. `.temp/guarded-webfetch-codex/run-XXXXXXXX/` を `mktemp -d` で隔離用 cwd として作成し、`trap EXIT` で削除する
-4. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
-5. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ、`--sandbox workspace-write --add-dir "$QUARANTINE_CWD"` にフォールバック
+4. `codex --search exec --sandbox read-only --ephemeral --ignore-user-config --ignore-rules --json --output-schema ...` を試行
+5. read-only 失敗時は停止し、stderr をそのまま返す
 6. Codex の JSONL 出力を `pipe-sanitize-codex.ts` にパイプ
 
 Codex 子に与えるプロンプトでは次を要求する。
@@ -216,14 +216,16 @@ Codex 子に与えるプロンプトでは次を要求する。
 
 ### ランタイム制約
 
-| 項目       | 値                                             | 制約の強度 |
-| ---------- | ---------------------------------------------- | ---------- |
-| 親コマンド | `codex --search exec`                          | 準ハード   |
-| sandbox    | `read-only` 優先、必要時のみ `workspace-write` | ハード     |
-| 永続化     | `--ephemeral`                                  | ハード     |
-| 出力形式   | `--json`                                       | ハード     |
-| schema     | `--output-schema fetch-output-schema.json`     | ハード     |
-| cwd        | `-C "$QUARANTINE_CWD"`                         | ハード     |
+| 項目       | 値                                         | 制約の強度 |
+| ---------- | ------------------------------------------ | ---------- |
+| 親コマンド | `codex --search exec`                      | 準ハード   |
+| sandbox    | `read-only` 固定                           | ハード     |
+| 永続化     | `--ephemeral`                              | ハード     |
+| 出力形式   | `--json`                                   | ハード     |
+| schema     | `--output-schema fetch-output-schema.json` | ハード     |
+| cwd        | `-C "$QUARANTINE_CWD"`                     | ハード     |
+
+- `--ignore-user-config --ignore-rules` はホスト側の Codex 設定や execpolicy `.rules` から隔離プロセスの挙動が影響を受けることを避け、再現性と決定論性を高めるために付与する
 
 ### 出力スキーマ（`fetch-output-schema.json`）
 
@@ -249,8 +251,7 @@ Codex 子に与えるプロンプトでは次を要求する。
 このスクリプトは read-only を第一候補にする。
 
 - **狙い**: Web 取得だけなら書き込み不要と考え、最小権限で通す
-- **例外**: Codex セッション初期化が read-only で失敗する環境では、`.temp/guarded-webfetch-codex/` 限定の `workspace-write` に落とす
-- **フォールバック条件**: stderr に `read-only file system`, `failed to create session`, `os error 30` が含まれる場合
+- **動作**: read-only 失敗時は追加権限に昇格せず停止する
 
 ### `pipe-sanitize-codex.ts`
 
@@ -270,7 +271,7 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 3. **error イベントのみ**: Codex JSONL に `type: "error"` しかない場合、fail-closed で終了する
 4. **fetch_success=false**: 最終メッセージで失敗応答を返した場合、親へ通さずエラー終了する
 5. **オリジン不一致**: 要求 URL と取得 URL のオリジンが異なる場合に停止する
-6. **read-only 失敗**: read-only 初期化失敗時のみ `workspace-write` にフォールバックする
+6. **read-only 失敗**: そのまま停止して stderr を返す
 7. **巨大テキスト**: 50,000 文字超で `truncated: true` が立つ
 
 テストは `pipe-sanitize-codex.ts` の in-source testing と、`quarantine-fetch-codex.sh` の手動 E2E で行う。
@@ -278,7 +279,7 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 ## 10. 設計上の割り切り
 
 - **Codex 子のツール権限を厳密には縛れない**: Claude 版の `WebFetch only` 相当の強制が見えていない。プロンプトと sandbox で抑制するが、完全なハード制約ではない
-- **read-only が常に通るとは限らない**: 環境によっては Codex セッション生成自体が書き込みを要求する。そのため最小権限を保ちつつ実用性を確保する目的で、限定的な `workspace-write` フォールバックを持つ
+- **read-only 失敗時の救済は持たない**: 追加権限への昇格経路は設けない
 - **Codex の Web 取得内容はモデル判断を通る**: `raw_text` は Codex 子が最終メッセージとして返すため、完全な「生 HTML 直出し」ではない。取得と整形の間にモデル判断が入る
 - **main Claude はサニタイズ済み全文を見る**: 自然言語ベースの説得・誘導までは静的サニタイザでは防げない
 - **JSONL フォーマット依存**: `pipe-sanitize-codex.ts` は現在観測した Codex イベント形式に依存する。CLI 側のイベント schema 変更には追随が必要
@@ -290,7 +291,6 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 - **Codex JSONL parser の厳密化**: イベント schema を型定義や JSON Schema として固定し、CLI 変更検知をしやすくする
 - **guarded-websearch-codex**: 検索結果一覧向けに同じ構造を展開する
 - **二段隔離**: Codex 子を取得専用、別プロセスを要約専用に分離する
-- **より厳密な権限評価**: 現状は `read-only file system` と `os error 30` (EROFS の Linux errno) のみで read-only 起因のサンドボックス失敗を判定している。Codex CLI 側で機械可読なエラーコード/種別が提供されたら、文字列マッチではなくそちらに切り替えてさらに精度を上げたい
 
 ## 12. 参考資料
 

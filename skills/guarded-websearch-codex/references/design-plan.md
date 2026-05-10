@@ -92,7 +92,7 @@ main Claude: 最終応答を生成
 - `codex exec` に `WebSearch only` を厳密強制するオプションは見えていない
 - `--search` は親 `codex` コマンド側に付与する必要がある
 - `--output-schema` は `error_message` を含め全キー required にする必要がある
-- read-only sandbox でセッション初期化に失敗する環境があり、限定的フォールバックが必要になる
+- `read-only` を唯一の sandbox 方針とし、失敗時も追加権限には昇格しない
 
 ## 6. ディレクトリ構成
 
@@ -134,8 +134,8 @@ bash .claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh '
 1. Node.js と `codex` CLI の存在確認
 2. クエリの入口検証 (バッククォート / `$()`、制御文字、1000 字上限) を実施
 3. `.temp/guarded-websearch-codex/run-XXXXXXXX/` を `mktemp -d` で隔離用 cwd として作成し、`trap EXIT` で削除する
-4. `codex --search exec --sandbox read-only --ephemeral --json --output-schema ...` を試行
-5. read-only で `Failed to create session` や `Read-only file system` が出た場合のみ `workspace-write` にフォールバック
+4. `codex --search exec --sandbox read-only --ephemeral --ignore-user-config --ignore-rules --json --output-schema ...` を試行
+5. read-only 失敗時は停止し、stderr をそのまま返す
 6. JSONL 出力を `pipe-sanitize-search-codex.ts` にパイプ
 
 Codex 子への要求:
@@ -186,14 +186,16 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ### ランタイム制約
 
-| 項目       | 値                                             | 制約の強度 |
-| ---------- | ---------------------------------------------- | ---------- |
-| 親コマンド | `codex --search exec`                          | 準ハード   |
-| sandbox    | `read-only` 優先、必要時のみ `workspace-write` | ハード     |
-| 永続化     | `--ephemeral`                                  | ハード     |
-| 出力形式   | `--json`                                       | ハード     |
-| schema     | `--output-schema search-output-schema.json`    | ハード     |
-| cwd        | `-C "$QUARANTINE_CWD"`                         | ハード     |
+| 項目       | 値                                          | 制約の強度 |
+| ---------- | ------------------------------------------- | ---------- |
+| 親コマンド | `codex --search exec`                       | 準ハード   |
+| sandbox    | `read-only` 固定                            | ハード     |
+| 永続化     | `--ephemeral`                               | ハード     |
+| 出力形式   | `--json`                                    | ハード     |
+| schema     | `--output-schema search-output-schema.json` | ハード     |
+| cwd        | `-C "$QUARANTINE_CWD"`                      | ハード     |
+
+- `--ignore-user-config --ignore-rules` はホスト側の Codex 設定や execpolicy `.rules` から隔離プロセスの挙動が影響を受けることを避け、再現性と決定論性を高めるために付与する
 
 ### 出力スキーマ
 
@@ -235,12 +237,12 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 3. `javascript:` URL の除外
 4. `search_success=false` の fail-closed
 5. `error` イベントしかない場合の fail-closed
-6. read-only 失敗時の `workspace-write` フォールバック
+6. read-only 失敗時に stderr をそのまま返して停止する
 
 ## 11. 設計上の割り切り
 
 - Codex 子のツール権限を厳密には縛れない
-- read-only が常に通るとは限らない
+- read-only 失敗時の救済は持たない
 - 検索結果の `query` 一致は完全には検証できない
 - JSONL イベント形式への依存がある
 - title/snippet を静的に無害化しても、自然言語だけの誘導は防げない
@@ -252,7 +254,6 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 - CLI イベント schema の厳密化
 - 危険結果だけを自動で `[redacted]` 表示する補助ロジック
 - `guarded-webfetch-codex` との連携テンプレート強化
-- `read-only` 失敗判定のさらなる厳密化: 現状は `read-only file system` と `os error 30` (EROFS の Linux errno) のみで判定している。Codex CLI 側で機械可読なエラーコード/種別が提供されたら、文字列マッチではなくそちらに切り替えてさらに精度を上げたい
 
 ## 13. 参考資料
 

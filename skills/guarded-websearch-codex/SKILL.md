@@ -56,8 +56,8 @@ bash .claude/skills/guarded-websearch-codex/scripts/quarantine-search-codex.sh '
 このスクリプトは以下を行う。
 
 - `.temp/guarded-websearch-codex/` を隔離用 cwd として使う
-- まず `codex --search exec --sandbox read-only --ephemeral` を試す
-- read-only で Codex 起動自体が失敗した場合のみ、`.temp/guarded-websearch-codex/` への限定書き込み付き `workspace-write` にフォールバックする
+- まず `codex --search exec --sandbox read-only --ephemeral --ignore-user-config --ignore-rules` を試す
+- read-only に失敗した場合はそのまま停止し、stderr を返す
 - 子 Codex の JSONL 出力から最終 JSON メッセージだけを抽出し、検索結果ごとに静的サニタイズする
 
 ### 3. 安全性判定
@@ -84,7 +84,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## ファイル
 
-- `scripts/quarantine-search-codex.sh`: Codex 子起動とフォールバック制御
+- `scripts/quarantine-search-codex.sh`: Codex 子起動と read-only 実行制御
 - `scripts/check-node-version.sh`: Node.js バージョン事前チェック (quarantine からも呼ばれる)
 - `scripts/pipe-sanitize-search-codex.ts`: Codex JSONL から検索結果を抽出して sanitize
 - `scripts/codex-jsonl.ts`: Codex JSONL から最終 agent_message を取り出す共通ユーティリティ (`shared/codex-jsonl/codex-jsonl.ts` から自動生成されたコピー)
