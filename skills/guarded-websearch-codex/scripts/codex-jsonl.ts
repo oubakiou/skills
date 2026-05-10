@@ -64,6 +64,14 @@ const findLastErrorMessage = (events: unknown[]): string | undefined => {
 
 const findLastErrorIndex = (events: unknown[]): number => events.findLastIndex(isErrorEvent)
 
+const throwFromError = (events: unknown[], fallbackMessage: string): never => {
+  const lastError = findLastErrorMessage(events)
+  if (typeof lastError === 'string') {
+    throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
+  }
+  throw new Error(fallbackMessage)
+}
+
 /**
  * JSONL から最終 agent_message のテキストを取り出す。
  * agent_message より後ろに error イベントがある場合も失敗として扱う。
@@ -75,20 +83,10 @@ export const extractLastAgentMessage = (jsonl: string): string => {
   const lastMessageIndex = findLastAgentMessageIndex(events)
   const lastErrorIndex = findLastErrorIndex(events)
   const lastMessage = findLastAgentMessage(events)
-  if (lastErrorIndex > lastMessageIndex) {
-    const lastError = findLastErrorMessage(events)
-    if (typeof lastError === 'string') {
-      throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
-    }
+  if (lastErrorIndex > lastMessageIndex || typeof lastMessage !== 'string') {
+    return throwFromError(events, 'Codex 子プロセスの最終 agent_message が見つかりません')
   }
-  if (typeof lastMessage === 'string') {
-    return lastMessage
-  }
-  const lastError = findLastErrorMessage(events)
-  if (typeof lastError === 'string') {
-    throw new Error(`Codex 子プロセスが失敗しました: ${lastError}`)
-  }
-  throw new Error('Codex 子プロセスの最終 agent_message が見つかりません')
+  return lastMessage
 }
 
 /**
