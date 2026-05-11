@@ -31,6 +31,6 @@ export default {
     // 回帰検出漏れを防ぐ
     // 各 skill の scripts/sanitize.ts / codex-jsonl.ts は shared/ から自動生成された
     // コピーのため、テストを重複実行しない
-    includeSource: ['shared/**/*.ts', 'skills/*/scripts/pipe-sanitize*.ts'],
+    includeSource: ['shared/**/*.ts', 'skills/*/scripts/pipe-sanitize*.ts', '.codex/hooks/**/*.ts'],
   },
 }
