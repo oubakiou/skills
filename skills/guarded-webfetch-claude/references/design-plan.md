@@ -138,6 +138,45 @@ skill の description は undertrigger を避けるためやや pushy に書く�
 
 `.temp/` は AGENTS.md でエージェントの一時生成物の置き場として規定されており、`.gitignore` で除外する運用と整合する。
 
+### OS レベルサンドボックスの併用
+
+`quarantine-fetch-settings.json` に `sandbox.enabled: true` と `sandbox.failIfUnavailable: false` を含める。Claude Code のサンドボックス機能（macOS は Seatbelt、Linux/WSL2 は bubblewrap）は **Bash コマンドおよびその子プロセスのファイルシステム / ネットワークアクセスを OS レベルで隔離する**機能であり、WebFetch のような組み込みツール自体はサンドボックスの管轄外で許可システムが直接制御する（公式ドキュメント「サンドボックス化がカバーしていないもの」「サンドボックス化が許可とどのように関連するか」参照）。
+
+本スキルの隔離プロセスは `--tools "WebFetch"` と permission `deny: ["Bash", ...]` で Bash 系の経路を既に塞いでいるため、**正常系ではサンドボックスが実効的に守る対象は存在しない**。サンドボックス併用の意義は次の 2 点に限定される:
+
+1. `--tools` や permission の強制がランタイムでバイパスされる脆弱性が将来発見された場合の追加層
+2. 隔離プロセスのスコープが将来 Bash や子プロセス起動を含む方向に拡張された場合に、設定変更なしで OS レベルの境界が継承される（スコープ拡張時の安全装置）
+
+「想定外の Bash / subprocess 経路が出た場合の保険」と位置付け、サンドボックスが正常系の防御層として機能している前提で他の制約を緩めることはしない。
+
+| 設定                        | 値      | 効果                                                                                                                                                                                                                                                                                                |
+| --------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sandbox.enabled`           | `true`  | Bash 子プロセスへの OS レベル分離を要求                                                                                                                                                                                                                                                             |
+| `sandbox.failIfUnavailable` | `false` | 依存パッケージ不足（Linux で `bubblewrap` または `socat` が未インストール）や非対応 OS（WSL1・ネイティブ Windows・古いプラットフォーム）の環境では、`claude -p` が stderr に警告（`⚠ Sandbox disabled: ...`）を出してサンドボックスなしで処理を続行する（exit code 0、stdout は通常通り JSON 応答） |
+
+**依存パッケージ**:
+
+- macOS: Seatbelt 組み込みのため追加インストール不要
+- Linux/WSL2: `bubblewrap` と `socat` の両方が必要（`apt install bubblewrap socat` または `dnf install bubblewrap socat`）
+- WSL1 / ネイティブ Windows: 現状サンドボックス非対応（Windows ネイティブサポートは Claude Code 側で計画中）
+
+**設計判断「claude 任せ」**: シェル側で OS や依存パッケージを事前検出して settings を切り替える方式は採用しない。`failIfUnavailable: false` による claude ネイティブのフォールバック挙動に委ねる。理由は:
+
+1. 検出ロジックが OS バリエーション（WSL1/WSL2/Cygwin/MSYS/Docker での `enableWeakerNestedSandbox` 必要性等）の増加に応じてメンテナンス負担が増えるのを避けるため
+2. サンドボックスの役割は上述の通り「想定外経路が出た場合の保険」に限定されており、本筋の隔離（`--tools` 制限・permission deny・環境変数・cwd 切替）はサンドボックス有無に関わらず常に機能するため、可用性を main agent の判定軸にする必要がない
+
+**可観測性を意図的に捨てる**: サンドボックスが実効されたか否かは main agent には伝達しない。`quarantine-fetch.sh` は成功時に stderr を捨てるため、claude の `⚠ Sandbox disabled` 警告は通常運用では main agent に届かない。これは**「サンドボックスが効いていない事実を観測する経路を意図的に持たない」**割り切りであり、依存欠如のサイレント許容と表裏一体。保守時の留意点として明示する。
+
+この割り切りを許容する根拠は、サンドボックスの実効ゲインが上述の通り「保険」に限定されており、保険が無効でも本筋の隔離は変わらないこと。ただし将来、隔離プロセスのスコープを Bash / subprocess を含む方向に拡張する変更を入れる場合は、**この前提が崩れる**ため、サンドボックス可観測性の再設計（stderr 警告を解析して JSON 出力に含める、検出スクリプトで事前判定する等）を伴う必要がある。
+
+**実測で確認した相性**（2026 年 5 月時点）:
+
+- `claude -p` は `--settings` の `sandbox.*` を実認識する
+- WebFetch は Anthropic サーバー側実行のため、`sandbox.network.allowedDomains` 等の Bash 子プロセス向けネットワーク制限の対象外。`allowedDomains` の指定は不要
+- `mktemp -d` で動的に切る `.temp/guarded-webfetch-claude/run-XXXXXXXX/` cwd でもサンドボックスは起動し、cwd デフォルト writable のため `sandbox.filesystem.allowWrite` の追加設定も不要
+- `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` の副作用ファイル群もサンドボックス下で正常に生成される
+- `--bare` 不使用での OAuth 認証継承もサンドボックス併用と両立する
+
 ### permission 評価順序に関する注意
 
 Claude Code の permission 評価順序は **deny → ask → allow** であり、**deny が常に優先される**。そのため `deny: ["Bash"]` と `allow: ["Bash(パターン)"]` を同時に設定すると、deny が先にマッチしてすべてブロックされる。本設計の隔離プロセスでは Bash を使用しないため `deny` に含めて問題ない（実測で確認済み）。
@@ -332,6 +371,10 @@ sanitize.ts は WebFetch が返すテキスト（HTML→テキスト変換済み
 
 ```json
 {
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": false
+  },
   "permissions": {
     "allow": ["WebFetch"],
     "deny": ["Read", "Write", "Edit", "MultiEdit", "Bash", "Agent", "Glob", "Grep", "NotebookEdit"]
@@ -339,6 +382,7 @@ sanitize.ts は WebFetch が返すテキスト（HTML→テキスト変換済み
 }
 ```
 
+- `sandbox.enabled` / `sandbox.failIfUnavailable`: OS レベルサンドボックスを defense-in-depth として有効化する。詳細はセクション 4「OS レベルサンドボックスの併用」を参照
 - `allow` に WebFetch のみ: `-p` モードではユーザーに確認を求められないため、`allow` リスト外のツール呼び出しは自動的に拒否される
 - `deny` に Bash を含む: 隔離プロセスでは Bash を使用しないため、`allow` との競合なし
 - `deny` に Read / Write / Edit / MultiEdit / Agent / Glob / Grep / NotebookEdit を含む: `--tools` との多層防御。`--tools "WebFetch"` でこれらのツールは存在しないが、defense in depth として deny にも含める
@@ -431,6 +475,7 @@ sanitize.ts は WebFetch が返すテキスト（HTML→テキスト変換済み
 - **完全防御ではない**: `suspicious_patterns` 多数ヒット等があれば main agent 側でユーザー確認を強制する運用で補完。SKILL.md にもその旨を明記
 - **パターンリストの陳腐化**: LLM マーカーのパターンリスト（セクション 7）は新しい攻撃手法の出現により陳腐化する。`references/injection_patterns.md` を更新する運用で対応し、新しいモデルや攻撃手法が公開された際にパターンを見直す
 - **LLM マーカーの過検出**: `<s>` / `</s>` は Llama BOS/EOS マーカーと HTML strikethrough タグが衝突する。`you are now ` / `new instructions:` は通常の英文記事中にも自然に出現する。WebFetch の HTML→text 変換が想定通り効かないページや、これらのフレーズを含む正常コンテンツは false positive で「要確認」判定になりうる。設計上「過検出寄りで fail-closed、ユーザー確認で運用補完」という方針を採用しているが、過検出が頻発する場合は `references/injection_patterns.md` でパターンを見直す
+- **OS サンドボックスは「想定外 Bash/subprocess 経路の保険」かつ可観測性は意図的に放棄**: セクション 4「OS レベルサンドボックスの併用」参照。サンドボックスは Bash 子プロセスのみが対象で、WebFetch 自体は管轄外。本スキルは `--tools "WebFetch"` と permission deny で Bash 経路を既に塞いでいるため、サンドボックスの実効ゲインは「強制バイパス脆弱性 / スコープ拡張時の保険」に限定される。`failIfUnavailable: false` により依存欠如時は claude が stderr 警告を出してサンドボックスなしで続行するが、その事実を観測する経路は意図的に持たない（main agent に伝達しない・ユーザー応答への付加注釈も付けない）。隔離プロセスのスコープを Bash / subprocess を含む方向に拡張する変更を入れる場合は、この前提が崩れるため可観測性の再設計が必要
 
 ## 11. 将来的な拡張候補
 
@@ -449,6 +494,7 @@ sanitize.ts は WebFetch が返すテキスト（HTML→テキスト変換済み
 - Anthropic WebFetch ツール公式ドキュメント（URL 検証・データ流出リスク・動的フィルタリング等）-- https://platform.claude.com/docs/ja/agents-and-tools/tool-use/web-fetch-tool
 - Claude Code CLI リファレンス（`claude -p` パイプモード、`--tools`、`--allowedTools` フラグ）-- https://docs.anthropic.com/en/docs/claude-code/cli-usage
 - Claude Code 環境変数リファレンス（`CLAUDE_CODE_DISABLE_CLAUDE_MDS`、`CLAUDE_CODE_SIMPLE` 等）-- https://code.claude.com/docs/ja/env-vars
+- Claude Code サンドボックスドキュメント（`sandbox.enabled` / `failIfUnavailable` / 依存パッケージ / macOS Seatbelt・Linux bubblewrap・WSL2 等のプラットフォーム要件）-- https://code.claude.com/docs/ja/sandboxing
 - AWS "Defending LLM applications against Unicode character smuggling" -- https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/
 - Cisco "Understanding and Mitigating Unicode Tag Prompt Injection"
 - Promptfoo "The Invisible Threat: Zero-Width Unicode Characters"

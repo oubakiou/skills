@@ -1,4 +1,8 @@
 {
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": false
+  },
   "permissions": {
     "allow": ["WebFetch"],
     "deny": ["Read", "Write", "Edit", "MultiEdit", "Bash", "Agent", "Glob", "Grep", "NotebookEdit"]
