@@ -1,4 +1,8 @@
 {
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": false
+  },
   "permissions": {
     "allow": ["WebSearch"],
     "deny": [

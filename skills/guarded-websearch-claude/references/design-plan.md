@@ -145,6 +145,12 @@ guarded-webfetch-claude と同一の環境変数を設定する:
 
 webfetch と同様に **実行ごとに `mktemp -d "$quarantine_base/run-XXXXXXXX"` でサブディレクトリを切り、`trap EXIT` で削除する** 設計を採用している。websearch は現状並列起動を想定していないが、webfetch と実装パターンを揃えることで保守性を担保し、将来並列起動を許容する場合の race も予防できる。詳細な意図は guarded-webfetch-claude の design-plan.md セクション 4 を参照。
 
+### OS レベルサンドボックスの併用
+
+guarded-webfetch-claude と同一方針: `quarantine-search-settings.json` に `sandbox.enabled: true` と `sandbox.failIfUnavailable: false` を含める。Claude Code のサンドボックス機能は **Bash コマンドおよびその子プロセスの OS レベル隔離** を提供する機能であり、WebSearch のような組み込みツール自体はサンドボックスの管轄外で許可システムが直接制御する。本スキルの隔離プロセスは `--tools "WebSearch"` と permission `deny: ["Bash", ...]` で Bash 系の経路を既に塞いでいるため、**正常系ではサンドボックスが実効的に守る対象は存在しない**。サンドボックスは「`--tools` / permission 強制が将来バイパスされる脆弱性が発見された場合」「隔離プロセスのスコープが将来 Bash や子プロセス起動を含む方向に拡張された場合」の保険として位置付ける。
+
+可観測性は意図的に放棄しており、`failIfUnavailable: false` で依存欠如時に claude が stderr 警告を出してサンドボックスなしで続行する事実を main agent には伝達しない。スコープ拡張時はこの前提が崩れるため可観測性の再設計が必要。依存パッケージ要件・claude 任せのフォールバック設計判断・実測で確認した相性は guarded-webfetch-claude の design-plan.md セクション 4「OS レベルサンドボックスの併用」を参照。
+
 ### permission 評価順序
 
 guarded-webfetch-claude と同様、Claude Code の permission 評価順序は **deny → ask → allow** であり deny が優先される。本スキルの隔離プロセスでも Bash を使用しないため `deny` に含めて問題ない。
@@ -286,6 +292,10 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 
 ```json
 {
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": false
+  },
   "permissions": {
     "allow": ["WebSearch"],
     "deny": [
@@ -304,6 +314,7 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 }
 ```
 
+- `sandbox.enabled` / `sandbox.failIfUnavailable`: OS レベルサンドボックスを defense-in-depth として有効化する。詳細はセクション 5「OS レベルサンドボックスの併用」および guarded-webfetch-claude の design-plan.md セクション 4 を参照
 - `allow` に WebSearch のみ
 - `deny` に WebFetch を含む: WebSearch 専用の隔離プロセスが URL のコンテンツを取得するのを防ぐ（defense in depth）
 
@@ -373,6 +384,7 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 - **完全防御ではない**: guarded-webfetch-claude と同様の緩和策
 - **WebSearch の返却形式への依存**: WebSearch ツールの返却形式が変更された場合、隔離プロセスのプロンプトと出力スキーマの更新が必要
 - **パターンリストは guarded-webfetch-claude 側と同期**: LLM マーカーのパターンリストは guarded-webfetch-claude の `references/injection_patterns.md` と sanitize.ts に一元管理されている。新しい攻撃手法が公開された場合の更新も guarded-webfetch-claude 側で行えば本スキルにも自動的に反映される
+- **OS サンドボックスは「想定外 Bash/subprocess 経路の保険」かつ可観測性は意図的に放棄**: セクション 5「OS レベルサンドボックスの併用」と guarded-webfetch-claude の design-plan.md セクション 4 / 10 と同一方針。サンドボックスは Bash 子プロセスのみが対象で、WebSearch 自体は管轄外。本スキルは `--tools "WebSearch"` と permission deny で Bash 経路を既に塞いでいるため、サンドボックスの実効ゲインは「強制バイパス脆弱性 / スコープ拡張時の保険」に限定される。`failIfUnavailable: false` の依存欠如時 fallback の事実は意図的に main agent に伝達しない。隔離プロセスのスコープを Bash / subprocess を含む方向に拡張する場合は可観測性の再設計が必要
 
 ## 12. 将来的な拡張候補
 
@@ -385,3 +397,4 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 - guarded-webfetch-claude の design-plan.md: 基盤となる設計・脅威モデル・参考文献（本ドキュメントから多数のセクションを参照）
 - Simon Willison "Dual LLM pattern" -- https://simonwillison.net/2023/Apr/25/dual-llm-pattern/
 - Google DeepMind CaMeL -- https://arxiv.org/abs/2503.18813
+- Claude Code サンドボックスドキュメント（`sandbox.enabled` / `failIfUnavailable` / 依存パッケージ / macOS Seatbelt・Linux bubblewrap・WSL2 等のプラットフォーム要件）-- https://code.claude.com/docs/ja/sandboxing
