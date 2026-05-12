@@ -148,16 +148,18 @@ Claude Code の permission 評価順序は **deny → ask → allow** であり�
 guarded-webfetch-claude/
 ├── SKILL.md
 ├── scripts/
-│   ├── sanitize.ts         # 静的サニタイザ（依存ゼロ）
-│   └── pipe-sanitize.ts    # 隔離プロセス出力→sanitize→stdout パイプスクリプト
+│   ├── check-node-version.sh # ステップ 0 の Node.js 23.6+ 事前チェック
+│   ├── quarantine-fetch.sh   # 隔離 cwd 切替・claude -p 起動・サニタイザ起動の集約エントリポイント
+│   ├── sanitize.ts           # 静的サニタイザ（shared/sanitize/sanitize.ts から sync-shared で生成）
+│   └── pipe-sanitize.ts      # 隔離プロセス出力→sanitize→stdout パイプスクリプト
 └── references/
-    ├── design-plan.md      # このドキュメント
-    ├── fetch-output-schema.json      # 隔離プロセス用 --json-schema
+    ├── design-plan.md                 # このドキュメント
+    ├── fetch-output-schema.json       # 隔離プロセス用 --json-schema
     ├── quarantine-fetch-settings.json # 隔離プロセス用 permission 設定
-    └── injection_patterns.md  # 既知パターン集（運用時に更新）
+    └── injection_patterns.md          # 既知パターン集（運用時に更新）
 ```
 
-隔離プロセスは `claude -p` で起動するため、別ファイルでのエージェント定義は不要。隔離プロセス用プロンプトテンプレートは SKILL.md 内に記述する。
+隔離プロセスは `claude -p` で起動するため、別ファイルでのエージェント定義は不要。隔離プロセス用プロンプトテンプレートは `quarantine-fetch.sh` 内のヒアドキュメントに集約している。
 
 ## 6. 実行フロー
 
