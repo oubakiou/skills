@@ -294,8 +294,11 @@ Codex 出力が Claude 版と異なり JSONL イベント列であることが�
 
 ## 12. 参考資料
 
-- `guarded-webfetch-claude/references/design-plan.md`
-- Codex CLI `codex exec --help`
-- Codex CLI `codex --help`
-- AWS "Defending LLM applications against Unicode character smuggling"
-- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters"
+- [`guarded-webfetch-claude/references/design-plan.md`](../../guarded-webfetch-claude/references/design-plan.md)（本スキルの基盤となる claude 版 design-plan、同一リポジトリ内）
+- Codex CLI `codex exec --help`（CLI ヘルプ出力）
+- Codex CLI `codex --help`（CLI ヘルプ出力）
+- Codex 公式ドキュメント "Sandbox & approvals" (https://github.com/openai/codex/blob/main/docs/sandbox.md)
+- Codex 公式ドキュメント "Advanced configuration"（Sandbox & Approval Settings、`sandbox_mode` 等の解説を含む）(https://developers.openai.com/codex/config-advanced)
+- Codex 公式ドキュメント "Configuration reference"（`config.toml` の Security & Sandbox セクション）(https://developers.openai.com/codex/config-reference)
+- AWS Security Blog "Defending LLM applications against Unicode character smuggling" (https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/)
+- Promptfoo Blog "The Invisible Threat: Zero-Width Unicode Characters" (https://www.promptfoo.dev/blog/invisible-unicode-threats/)

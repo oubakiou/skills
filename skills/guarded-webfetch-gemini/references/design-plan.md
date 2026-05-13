@@ -625,5 +625,5 @@ guarded-\*-claude / guarded-\*-codex / guarded-\*-gemini の防御実装の差�
   - `web_fetch` tool — <https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/web-fetch.md>
   - Commands reference — <https://github.com/google-gemini/gemini-cli/tree/main/docs/reference/commands>
   - 各ファイルパスはリポジトリの実態に合わせて要再確認 (リポジトリ構造変更時の追随が必要)
-- AWS "Defending LLM applications against Unicode character smuggling"
-- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters"
+- AWS "Defending LLM applications against Unicode character smuggling" — <https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/>
+- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters" — <https://www.promptfoo.dev/blog/invisible-unicode-threats/>

@@ -319,3 +319,5 @@ guarded-websearch 系 3 スキルに共通する性質（websearch 固有の項�
 - [`guarded-websearch-claude/references/design-plan.md`](../../guarded-websearch-claude/references/design-plan.md) — websearch 共通の設計パターン（二層フラグ構造、query_mismatch 等）
 - [`guarded-websearch-codex/references/design-plan.md`](../../guarded-websearch-codex/references/design-plan.md) — Codex 版 websearch の設計
 - Gemini CLI 公式リポジトリ — <https://github.com/google-gemini/gemini-cli>
+- AWS "Defending LLM applications against Unicode character smuggling" — <https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/>
+- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters" — <https://www.promptfoo.dev/blog/invisible-unicode-threats/>

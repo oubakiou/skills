@@ -496,5 +496,5 @@ sanitize.ts は WebFetch が返すテキスト（HTML→テキスト変換済み
 - Claude Code 環境変数リファレンス（`CLAUDE_CODE_DISABLE_CLAUDE_MDS`、`CLAUDE_CODE_SIMPLE` 等）-- https://code.claude.com/docs/ja/env-vars
 - Claude Code サンドボックスドキュメント（`sandbox.enabled` / `failIfUnavailable` / 依存パッケージ / macOS Seatbelt・Linux bubblewrap・WSL2 等のプラットフォーム要件）-- https://code.claude.com/docs/ja/sandboxing
 - AWS "Defending LLM applications against Unicode character smuggling" -- https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/
-- Cisco "Understanding and Mitigating Unicode Tag Prompt Injection"
-- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters"
+- Cisco "Understanding and Mitigating Unicode Tag Prompt Injection" -- https://blogs.cisco.com/ai/understanding-and-mitigating-unicode-tag-prompt-injection
+- Promptfoo "The Invisible Threat: Zero-Width Unicode Characters" -- https://www.promptfoo.dev/blog/invisible-unicode-threats/

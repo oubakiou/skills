@@ -394,7 +394,7 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 
 ## 13. 参考資料
 
-- guarded-webfetch-claude の design-plan.md: 基盤となる設計・脅威モデル・参考文献（本ドキュメントから多数のセクションを参照）
+- [guarded-webfetch-claude の design-plan.md](../../guarded-webfetch-claude/references/design-plan.md): 基盤となる設計・脅威モデル・参考文献（本ドキュメントから多数のセクションを参照）
 - Simon Willison "Dual LLM pattern" -- https://simonwillison.net/2023/Apr/25/dual-llm-pattern/
 - Google DeepMind CaMeL -- https://arxiv.org/abs/2503.18813
 - Claude Code サンドボックスドキュメント（`sandbox.enabled` / `failIfUnavailable` / 依存パッケージ / macOS Seatbelt・Linux bubblewrap・WSL2 等のプラットフォーム要件）-- https://code.claude.com/docs/ja/sandboxing

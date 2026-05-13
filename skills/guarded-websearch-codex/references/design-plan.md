@@ -257,6 +257,12 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## 13. 参考資料
 
-- `guarded-websearch-claude/references/design-plan.md`
-- `guarded-webfetch-codex/references/design-plan.md`
-- Codex CLI `codex exec --help`
+- [`guarded-websearch-claude/references/design-plan.md`](../../guarded-websearch-claude/references/design-plan.md)（基盤となる claude 版 websearch design-plan、同一リポジトリ内）
+- [`guarded-webfetch-codex/references/design-plan.md`](../../guarded-webfetch-codex/references/design-plan.md)（codex 版の姉妹スキル webfetch design-plan、同一リポジトリ内）
+- Codex CLI `codex exec --help`（CLI ヘルプ出力）
+- Codex CLI `codex --help`（CLI ヘルプ出力）
+- Codex 公式ドキュメント "Sandbox & approvals" (https://github.com/openai/codex/blob/main/docs/sandbox.md)
+- Codex 公式ドキュメント "Advanced configuration"（Sandbox & Approval Settings、`sandbox_mode` 等の解説を含む）(https://developers.openai.com/codex/config-advanced)
+- Codex 公式ドキュメント "Configuration reference"（`config.toml` の Security & Sandbox セクション）(https://developers.openai.com/codex/config-reference)
+- AWS Security Blog "Defending LLM applications against Unicode character smuggling" (https://aws.amazon.com/blogs/security/defending-llm-applications-against-unicode-character-smuggling/)
+- Promptfoo Blog "The Invisible Threat: Zero-Width Unicode Characters" (https://www.promptfoo.dev/blog/invisible-unicode-threats/)
