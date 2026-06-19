@@ -9,7 +9,7 @@
  *   node scripts/sync-shared.ts --check  # コピーが正本と一致するか検証 (pre-commit 用)
  */
 
-import { dirname, resolve } from 'node:path'
+import path from 'node:path'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -20,7 +20,7 @@ interface SyncEntry {
   targets: string[]
 }
 
-const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 const ENTRIES: SyncEntry[] = [
   {
@@ -41,11 +41,11 @@ const ENTRIES: SyncEntry[] = [
   },
 ]
 
-const readSource = (source: string): string => readFileSync(resolve(REPO_ROOT, source), 'utf8')
+const readSource = (source: string): string => readFileSync(path.resolve(REPO_ROOT, source), 'utf8')
 
 const readTarget = (target: string): string | null => {
   try {
-    return readFileSync(resolve(REPO_ROOT, target), 'utf8')
+    return readFileSync(path.resolve(REPO_ROOT, target), 'utf8')
   } catch {
     return null
   }
@@ -88,13 +88,13 @@ const writeAll = (): { updated: string[] } => {
     if (targetContent === sourceContent) {
       return []
     }
-    writeFileSync(resolve(REPO_ROOT, target), sourceContent)
+    writeFileSync(path.resolve(REPO_ROOT, target), sourceContent)
     return [target]
   })
   return { updated }
 }
 
-const formatList = (paths: string[]): string => paths.map((path) => `  - ${path}`).join('\n')
+const formatList = (paths: string[]): string => paths.map((entry) => `  - ${entry}`).join('\n')
 
 const runCheck = (): void => {
   const { drifted, missing } = collectDiffs()

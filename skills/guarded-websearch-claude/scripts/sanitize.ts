@@ -32,7 +32,7 @@ const TAG_CHARS = /[\u{E0000}-\u{E007F}]/gu
 const ZERO_WIDTH = /[\u200B-\u200F\u2060\uFEFF]/g
 const BIDI_OVERRIDE = /[\u202A-\u202E\u2066-\u2069]/g
 // eslint-disable-next-line no-control-regex -- サニタイザの本質的な機能として制御文字を検出する必要がある
-const CONTROL_CHARS = new RegExp(String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]`, 'g')
+const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g
 
 /** 不可視Unicode文字を除去しNFKC正規化する */
 const sanitizeUnicode = (str: string, flags: SanitizeFlags): string => {

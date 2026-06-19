@@ -1,4 +1,4 @@
-@README_ja.md
+@README.md
 @docs/design/development.md
 
 - エージェントが作業中に一時的なファイルやディレクトリを作成する場合は、必ず `.temp/` 配下に作成する
