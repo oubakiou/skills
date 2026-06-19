@@ -1,6 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
 alias npx='npx --no-install'
 
-npm ci
+# 初回は package-lock.json が無いので npm install、それ以降は npm ci でロック厳守
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
 
 # claude コマンドのシンボリックリンクを作成
 CLAUDE_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/claude"
@@ -26,6 +34,7 @@ fi
 echo "デフォルトskillをインストールします"
 gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
+gh skill install oubakiou/mdxg-redline md-review --agent claude-code --scope project
 
 # このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にインストールする
 # --from-local で現ワーキングツリーから直接インストールするため、ローカル編集が即反映される
@@ -43,14 +52,25 @@ done
 # bubblewrapはCodexに必要
 sudo apt-get update -qq && sudo apt-get install -y -qq python3 libpython3-stdlib bubblewrap > /dev/null 2>&1
 
-# vite-plusのインストール
-# https://viteplus.dev/guide/#install-vp
-echo "vite-plusをインストールします"
-curl -fsSL https://vite.plus | bash
-# vp コマンドのシンボリックリンクを作成
-sudo ln -sf "$HOME/.vite-plus/bin/vp" /usr/local/bin/vp
+# npm にインストールされた vite-plus の vp をグローバル参照できるようにする
+echo "npm 管理の vite-plus(vp) を設定します"
+VP_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/vp"
+if [ ! -x "$VP_BIN" ]; then
+  echo "vp が見つかりません。npm install に失敗している可能性があります: $VP_BIN"
+  exit 1
+fi
+sudo ln -sf "$VP_BIN" /usr/local/bin/vp
+
+# typescript-lsp plugin から typescript-language-server を参照できるようにする
+TS_LSP_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/typescript-language-server"
+if [ ! -x "$TS_LSP_BIN" ]; then
+  echo "typescript-language-server が見つかりません: $TS_LSP_BIN"
+  exit 1
+fi
+sudo ln -sf "$TS_LSP_BIN" /usr/local/bin/typescript-language-server
 
 # git 設定
 git config --local core.hooksPath .githooks
+
 # Oh My Zsh が LESS=-R を設定し F フラグが欠落するため、git の pager を明示的に指定
 git config --global core.pager 'less -FRX'
