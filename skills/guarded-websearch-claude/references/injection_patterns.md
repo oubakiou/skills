@@ -3,7 +3,7 @@
 このドキュメントは sanitize.ts で検出対象とする既知パターンを記録・管理するためのものである。
 新しいモデルや攻撃手法が公開された際にパターンを見直し、必要に応じて sanitize.ts の `LLM_MARKERS` を更新する。
 
-sanitize.ts の正本は `shared/sanitize/sanitize.ts` にあり、本スキルの `scripts/sanitize.ts` は `scripts/sync-shared.ts` で配布された自動生成コピー（webfetch-claude を含む全 6 skill で同一実装）。パターン定義のドキュメント側は webfetch-claude 側を一次ソースとして共通参照する。
+sanitize.ts の正本は `shared/sanitize/sanitize.ts` にあり、本スキルの `scripts/sanitize.ts` は `scripts/sync-shared.ts` で配布された自動生成コピー（webfetch-claude を含む全 4 skill で同一実装）。パターン定義のドキュメント側は webfetch-claude 側を一次ソースとして共通参照する。
 
 ## 参照
 

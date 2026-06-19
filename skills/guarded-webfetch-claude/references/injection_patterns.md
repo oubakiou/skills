@@ -24,7 +24,7 @@ sanitize.ts の正本は `shared/sanitize/sanitize.ts` で、各 skill の `scri
 2. `shared/sanitize/sanitize.ts` の `LLM_MARKERS` 配列に対応する正規表現エントリを追加
 3. 同ファイルの `import.meta.vitest` ブロック内 `neutralizeMarkers` describe 群に、新パターンの置換と `suspicious_patterns` 計上を検証するテストケースを追加
 4. `vp test shared/sanitize/sanitize.ts --run` で in-source テストが通ることを確認
-5. `npm run sync-shared` を実行し、正本の変更を全 6 skill の `scripts/sanitize.ts` に反映
+5. `npm run sync-shared` を実行し、正本の変更を全 4 skill の `scripts/sanitize.ts` に反映
 6. 本ファイル末尾の「更新履歴」に変更概要を 1 行追記
 
 ### 設計上の注意

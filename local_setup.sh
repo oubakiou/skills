@@ -11,10 +11,6 @@ node node_modules/@anthropic-ai/claude-code/install.cjs
 CODEX_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/codex"
 sudo ln -sf "$CODEX_BIN" /usr/local/bin/codex
 
-# gemini コマンドのシンボリックリンクを作成
-GEMINI_BIN="$(cd "$(dirname "$0")" && pwd)/node_modules/.bin/gemini"
-sudo ln -sf "$GEMINI_BIN" /usr/local/bin/gemini
-
 # .claude/settings.local.json が無ければ example からコピー
 if [ ! -f .claude/settings.local.json ]; then
   cp .claude/settings.example.json .claude/settings.local.json
@@ -37,10 +33,8 @@ gh skill install anthropics/skills skill-creator --agent claude-code --scope pro
 for skill in \
   guarded-webfetch-claude \
   guarded-webfetch-codex \
-  guarded-webfetch-gemini \
   guarded-websearch-claude \
   guarded-websearch-codex \
-  guarded-websearch-gemini \
 ; do
   gh skill install . "$skill" --from-local --agent claude-code --scope project --force
 done

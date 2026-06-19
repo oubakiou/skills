@@ -174,7 +174,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## 8. サニタイザの処理
 
-`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（webfetch-codex を含む全 6 skill で同一）。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（webfetch-codex を含む全 4 skill で同一）。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
 
 検索結果固有の考慮事項:
 

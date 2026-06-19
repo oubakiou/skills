@@ -251,7 +251,7 @@ pipe-sanitize-search.ts の出力は `aggregate_flags`（全結果集計）と�
 
 ## 8. サニタイザの処理
 
-`shared/sanitize/sanitize.ts` の正本から自動生成された `scripts/sanitize.ts`（webfetch-claude を含む全 6 skill で同一実装）を使う。検索結果の各 title・snippet に対して個別に `sanitize(url, url, text)` を呼び出す（検索結果の URL は隔離プロセス由来のみで CLI 引数に対応する URL がないため、`requested_url` と `fetched_url` は同一値で渡す）。
+`shared/sanitize/sanitize.ts` の正本から自動生成された `scripts/sanitize.ts`（webfetch-claude を含む全 4 skill で同一実装）を使う。検索結果の各 title・snippet に対して個別に `sanitize(url, url, text)` を呼び出す（検索結果の URL は隔離プロセス由来のみで CLI 引数に対応する URL がないため、`requested_url` と `fetched_url` は同一値で渡す）。
 
 処理層の詳細（Unicode 層・LLM マーカー無害化・量的制限）は guarded-webfetch-claude の design-plan.md セクション 7 を参照。
 

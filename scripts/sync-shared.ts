@@ -28,10 +28,8 @@ const ENTRIES: SyncEntry[] = [
     targets: [
       'skills/guarded-webfetch-claude/scripts/sanitize.ts',
       'skills/guarded-webfetch-codex/scripts/sanitize.ts',
-      'skills/guarded-webfetch-gemini/scripts/sanitize.ts',
       'skills/guarded-websearch-claude/scripts/sanitize.ts',
       'skills/guarded-websearch-codex/scripts/sanitize.ts',
-      'skills/guarded-websearch-gemini/scripts/sanitize.ts',
     ],
   },
   {
