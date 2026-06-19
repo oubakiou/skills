@@ -12,6 +12,7 @@
     "@google/gemini-cli": "^0.40.1",
     "@openai/codex": "0.x",
     "@types/node": "^24.0.0",
+    "mdxg-redline": "^0.1.3",
     "oxlint-tsgolint": "0.x",
     "typescript": "^6.0.2",
     "typescript-language-server": "^5.1.3",
