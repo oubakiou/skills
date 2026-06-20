@@ -263,9 +263,23 @@ bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<�
 
 ### Codex runtime state の隔離
 
-Codex CLI は `codex exec --sandbox read-only` であっても、起動時に `$CODEX_HOME` 配下へ runtime state を書き込む。観測された書き込み先には `tmp/arg0`, `state_*.sqlite`, `logs_*.sqlite`, `goals_*.sqlite`, `memories_*.sqlite`, `skills/.system`, `.tmp/plugins.sync.lock` が含まれる。通常の `$CODEX_HOME` が sandbox 上 read-only に見える環境では、fetcher 実行前に `failed to initialize in-process app-server client: Read-only file system` で停止する。
+Codex CLI は `codex exec --sandbox read-only` であっても、起動時に `$CODEX_HOME` 配下へ runtime state を書き込む。観測された書き込み先には `tmp/arg0`, `state_*.sqlite`, `logs_*.sqlite`, `goals_*.sqlite`, `memories_*.sqlite`, `skills/.system`, `.tmp/plugins.sync.lock` が含まれる。
 
-このため、子 Codex の実行時は実ユーザーの `$CODEX_HOME` に依存せず、実行ごとの隔離ディレクトリへ writable な disposable home を作る方針にする。
+ただし v0.139.0 での追加調査の結果、`$CODEX_HOME` への書き込みは `read-only` sandbox の制限対象外であることが判明した。sandbox はシェルコマンド実行 (`command_execution`) のファイルシステム・ネットワークを制限するが、`$CODEX_HOME` への state 書き込みは sandbox レイヤーの外側で行われるため、`read-only` でも初期化自体は成功する。v0.139.0 では従来この節で記載していた「`failed to initialize in-process app-server client: Read-only file system`」エラーは再現せず、当時の Codex バージョンまたは環境固有の挙動であったと考えられる。
+
+現在 `read-only` sandbox で本スキルが動作しない実際の原因は、sandbox がシェルコマンド実行に対して**ネットワークアクセスを遮断する**ことにある。`node http-fetch-codex.ts` は子 Codex 内のシェルコマンドとして実行されるため、DNS 解決の時点で `getaddrinfo EAI_AGAIN` により失敗する。
+
+一方 `guarded-websearch-codex` が `read-only` で動作する理由は、Codex の組み込み `web_search` ツール（JSONL イベントの `type: "web_search"`）がサーバーサイドで処理され、sandbox のシェルコマンド制限を受けないためである。この組み込みツールは `--search` フラグの有無に関わらず利用可能で、`codex exec --sandbox read-only` でも `web_search` イベントは発火する。
+
+以下は v0.139.0 で確認した `read-only` sandbox の制限範囲:
+
+| 経路                                 | ネットワーク          | ファイル書き込み      |
+| ------------------------------------ | --------------------- | --------------------- |
+| シェルコマンド (`command_execution`) | 制限 (DNS 不可)       | 制限 (Read-only)      |
+| 組み込みツール (`web_search`)        | 許可 (サーバーサイド) | 該当なし              |
+| `$CODEX_HOME` への state 書き込み    | 対象外                | 許可 (sandbox 対象外) |
+
+現在の `CODEX_HOME` 隔離は、実ユーザーの `$CODEX_HOME` を汚染しない目的で維持する。
 
 ```bash
 CODEX_HOME="$QUARANTINE_CWD/codex-home"
@@ -274,7 +288,7 @@ TMPDIR="$QUARANTINE_CWD/tmp"
 
 `quarantine-fetch-codex.sh` は子 Codex を起動する際、この `CODEX_HOME` と `TMPDIR` を `codex exec` のコマンド環境変数として渡す（`export` ではなく、`codex exec` の前置のみ）。これにより Codex CLI の状態 DB、一時 alias、system skills、lock file などの書き込みを `$QUARANTINE_CWD` 配下に閉じ込め、`trap EXIT` によって実行後に破棄できる。
 
-この回避策は read-only sandbox を主防御にするものではない。`CODEX_HOME` を writable にして初期化失敗を避けても、read-only sandbox では OpenAI API や対象 URL へのネットワーク接続が環境により失敗しうる。URL fetch の安全境界は Codex sandbox ではなく、`http-fetch-codex.ts` の SSRF / redirect / content-type / size / timeout 制限と、`pipe-sanitize-codex.ts` の静的サニタイズに置く。
+URL fetch の安全境界は Codex sandbox ではなく、`http-fetch-codex.ts` の SSRF / redirect / content-type / size / timeout 制限と、`pipe-sanitize-codex.ts` の静的サニタイズに置く。
 
 認証については、`OPENAI_API_KEY` を使う場合は disposable `CODEX_HOME` で完結できる。ChatGPT login の `auth.json` に依存する場合は、実ユーザーの `$CODEX_HOME` を直接書き込み先にせず、必要最小限の認証情報だけを隔離ディレクトリへ読み取り元からコピーする方針を検討する。
 
@@ -348,8 +362,8 @@ direct HTTP fetcher の出力 JSON を sanitize 前に検証する。
 - **サイト固有 extractor**: Zenn など構造が安定しているサイトについて、汎用 extractor の前後に小さなサイト固有処理を追加する
 - **HTTP cache / retry policy**: 一時的な DNS / timeout 失敗に対する限定的 retry を導入する
 - **guarded-websearch-codex**: 検索結果一覧向けに同じ構造を展開する
-- **要約専用 invocation の権限分離**: 現在は fetch + sanitize + 要約を単一の `codex exec` (`danger-full-access`) で実行しているが、要約フェーズだけを別の `codex exec` に分離し、コマンド実行権限を制限する構成に移行する。Codex CLI の `read-only` sandbox では初期化が失敗する制約があるため、Codex 側の sandbox 改善または別の LLM API 呼び出しへの切り替えが前提
-- **二段隔離**: HTTP fetcher を取得専用、別プロセスを要約専用に分離する
+- **要約専用 invocation の権限分離と二段隔離**: 現在は fetch + sanitize + 要約を単一の `codex exec` (`danger-full-access`) で実行しているが、HTTP fetcher を取得専用、要約フェーズを別の `codex exec` に分離し、要約側のコマンド実行権限を制限する構成に移行する。v0.139.0 の調査で `read-only` sandbox の初期化自体は成功することが判明したが、シェルコマンドのネットワークアクセスが遮断されるため、要約のみの invocation（ネットワーク不要）であれば `read-only` で実行可能な見込みがある
+- **HTTP 取得の `read-only` 化**: 現在の `node http-fetch-codex.ts` はシェルコマンド経由のため `read-only` sandbox のネットワーク制限に抵触する。Codex の組み込み `web_search` ツールのように sandbox 制限を受けないサーバーサイド取得手段（組み込み web fetch ツール等）が利用可能になれば、HTTP 取得も `read-only` で実行できる可能性がある
 
 ## 12. 参考資料
 
