@@ -9,7 +9,7 @@ LLM エージェント（Claude Code / Codex）向けのカスタムスキル集
 - Node.js 23.6 以降 (パイプサニタイザ実行用)
 - 導入するスキルに応じて、以下の CLI コマンドが PATH 上で実行可能であること:
   - `guarded-*-claude` を使うなら `claude` コマンド
-  - `guarded-*-codex` を使うなら `codex` コマンド
+  - `guarded-*-codex` を使うなら `codex` コマンドと `jq` コマンド
 
 ### 例 1: `gh skill install` ([GitHub CLI](https://cli.github.com/manual/gh_skill_install))
 

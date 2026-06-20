@@ -9,8 +9,8 @@ import { isIP } from 'node:net'
 interface FetchOutput {
   error_message: string
   fetch_success: boolean
+  raw_html: string
   raw_text: string
-  summary_text: string
   url: string
 }
 
@@ -39,7 +39,6 @@ interface FetchContext {
 
 export const MAX_RESPONSE_BYTES = 1_000_000
 export const MAX_REDIRECTS = 5
-export const MAX_SUMMARY_CHARS = 4000
 export const FETCH_TIMEOUT_MS = 20_000
 
 const ALLOWED_CONTENT_TYPES = [
@@ -346,104 +345,6 @@ export const extractBodyText = (body: string, contentType: string): string => {
   return collapseWhitespace(body)
 }
 
-const truncateText = (text: string, maxChars: number): string => {
-  if (text.length <= maxChars) {
-    return text
-  }
-  return `${text.slice(0, maxChars).trimEnd()}...`
-}
-
-const splitSentences = (text: string): string[] => {
-  const matches = text.match(/[^。.!?！？]+[。.!?！？]?/g)
-  return matches ?? [text]
-}
-
-interface SummaryAccumulator {
-  length: number
-  parts: string[]
-}
-
-interface AppendResult {
-  accumulator: SummaryAccumulator
-  added: boolean
-}
-
-interface AppendInput {
-  accumulator: SummaryAccumulator
-  gap: number
-  maxChars: number
-  text: string
-}
-
-const summaryParagraphs = (rawText: string): string[] =>
-  rawText
-    .split(/\n{2,}/)
-    .map(collapseWhitespace)
-    .filter((paragraph) => paragraph.length > 0)
-
-const gapLength = (parts: string[], gap: number): number => {
-  if (parts.length === 0) {
-    return 0
-  }
-  return gap
-}
-
-const measuredLength = (accumulator: SummaryAccumulator, text: string, gap: number): number =>
-  accumulator.length + text.length + gapLength(accumulator.parts, gap)
-
-const appendPart = (
-  accumulator: SummaryAccumulator,
-  text: string,
-  gap: number
-): SummaryAccumulator => ({
-  length: measuredLength(accumulator, text, gap),
-  parts: [...accumulator.parts, text],
-})
-
-const appendIfFits = ({ accumulator, gap, maxChars, text }: AppendInput): AppendResult => {
-  if (measuredLength(accumulator, text, gap) > maxChars) {
-    return { accumulator, added: false }
-  }
-  return { accumulator: appendPart(accumulator, text, gap), added: true }
-}
-
-const appendSentenceSummary = (
-  paragraph: string,
-  accumulator: SummaryAccumulator,
-  maxChars: number
-): SummaryAccumulator => {
-  let current = accumulator
-  for (const sentence of splitSentences(paragraph).map(collapseWhitespace)) {
-    const result = appendIfFits({ accumulator: current, gap: 1, maxChars, text: sentence })
-    if (!result.added) {
-      break
-    }
-    current = result.accumulator
-  }
-  return current
-}
-
-const buildSummary = (paragraphs: string[], maxChars: number): SummaryAccumulator => {
-  let current: SummaryAccumulator = { length: 0, parts: [] }
-  for (const paragraph of paragraphs) {
-    const result = appendIfFits({ accumulator: current, gap: 2, maxChars, text: paragraph })
-    if (!result.added) {
-      return appendSentenceSummary(paragraph, current, maxChars)
-    }
-    current = result.accumulator
-  }
-  return current
-}
-
-export const summarizeText = (rawText: string, maxChars: number = MAX_SUMMARY_CHARS): string => {
-  const paragraphs = summaryParagraphs(rawText)
-  const summary = buildSummary(paragraphs, maxChars).parts.join('\n\n')
-  if (summary.length === 0) {
-    return truncateText(collapseWhitespace(rawText), maxChars)
-  }
-  return truncateText(summary, maxChars)
-}
-
 const formatErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message
@@ -454,16 +355,16 @@ const formatErrorMessage = (error: unknown): string => {
 const buildFailure = (url: string, error: unknown): FetchOutput => ({
   error_message: formatErrorMessage(error),
   fetch_success: false,
+  raw_html: '',
   raw_text: '',
-  summary_text: '',
   url,
 })
 
-const buildSuccess = (url: string, rawText: string): FetchOutput => ({
+const buildSuccess = (url: string, rawHtml: string, rawText: string): FetchOutput => ({
   error_message: '',
   fetch_success: true,
+  raw_html: rawHtml,
   raw_text: rawText,
-  summary_text: summarizeText(rawText),
   url,
 })
 
@@ -535,7 +436,11 @@ const fetchSuccessResponse = async (
   const contentType = response.headers.get('content-type') ?? ''
   validateContentType(contentType)
   const responseBody = await readResponseText(response, context.maxBytes)
-  return buildSuccess(responseUrl(response, currentUrl), extractBodyText(responseBody, contentType))
+  return buildSuccess(
+    responseUrl(response, currentUrl),
+    responseBody,
+    extractBodyText(responseBody, contentType)
+  )
 }
 
 const fetchFollowingRedirects = async (
@@ -793,36 +698,33 @@ if (import.meta.vitest) {
     })
   })
 
-  describe('summarizeText', () => {
-    it('短いテキストはそのまま返す', () => {
-      expect(summarizeText('short text', 100)).toBe('short text')
-    })
-
-    it('上限を超えるテキストを切り詰める', () => {
-      const result = summarizeText('a'.repeat(200), 50)
-      expect(result.length).toBeLessThanOrEqual(53)
-      expect(result).toMatch(/\.\.\.$/u)
-    })
-
-    it('段落境界で分割する', () => {
-      const text = 'First paragraph.\n\nSecond paragraph.\n\nThird paragraph.'
-      const result = summarizeText(text, 40)
-      expect(result).toContain('First paragraph.')
-      expect(result).not.toContain('Third paragraph.')
-    })
-
-    it('buildSuccess 経由で summary_text がセットされる', async () => {
+  describe('raw_html', () => {
+    it('成功時に生レスポンスボディを raw_html に保持する', async () => {
+      const html = '<html><body><article>Body</article></body></html>'
       const result = await fetchUrl('https://example.com/page', {
         fetchImpl: async () =>
-          textResponse('Body text content', {
-            headers: { 'content-type': 'text/plain' },
+          textResponse(html, {
+            headers: { 'content-type': 'text/html' },
             status: 200,
           }),
         resolveHostname: resolvePublic,
       })
       expect(result.fetch_success).toBe(true)
-      expect(result.summary_text.length).toBeGreaterThan(0)
-      expect(result.summary_text).toBe('Body text content')
+      expect(result.raw_html).toBe(html)
+      expect(result.raw_text).toContain('Body')
+    })
+
+    it('失敗時は raw_html が空文字になる', async () => {
+      const result = await fetchUrl('https://example.com/file', {
+        fetchImpl: async () =>
+          textResponse('png', {
+            headers: { 'content-type': 'image/png' },
+            status: 200,
+          }),
+        resolveHostname: resolvePublic,
+      })
+      expect(result.fetch_success).toBe(false)
+      expect(result.raw_html).toBe('')
     })
   })
 }

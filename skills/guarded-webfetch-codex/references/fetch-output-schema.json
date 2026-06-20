@@ -1,10 +1,10 @@
 {
   "type": "object",
-  "required": ["url", "raw_text", "summary_text", "fetch_success", "error_message"],
+  "required": ["url", "raw_html", "raw_text", "fetch_success", "error_message"],
   "properties": {
     "url": { "type": "string" },
+    "raw_html": { "type": "string" },
     "raw_text": { "type": "string" },
-    "summary_text": { "type": "string" },
     "fetch_success": { "type": "boolean" },
     "error_message": { "type": "string" }
   },

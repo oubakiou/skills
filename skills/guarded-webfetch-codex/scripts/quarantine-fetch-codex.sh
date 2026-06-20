@@ -13,6 +13,7 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 3
 fi
 
+
 if [ $# -lt 1 ] || [ -z "${1:-}" ]; then
   echo "Usage: $0 <URL>" >&2
   exit 2
@@ -61,11 +62,11 @@ trap 'rm -rf "$QUARANTINE_CWD"' EXIT
 
 HTTP_FETCHER="$SKILL_DIR/scripts/http-fetch-codex.ts"
 PIPE_SANITIZER="$SKILL_DIR/scripts/pipe-sanitize-codex.ts"
+MERGE_SUMMARY="$SKILL_DIR/scripts/merge-summary-codex.ts"
 FETCH_SCHEMA="$SKILL_DIR/references/fetch-output-schema.json"
 FETCH_OUTPUT="$QUARANTINE_CWD/fetch-output.json"
 URL_FILE="$QUARANTINE_CWD/fetch-url.txt"
 CODEX_STDERR="$QUARANTINE_CWD/codex.stderr"
-FETCH_STDOUT="$QUARANTINE_CWD/fetcher.stdout"
 FETCH_STDERR="$QUARANTINE_CWD/fetcher.stderr"
 
 RESULT_DIR="$PWD/.temp/guarded-webfetch-codex/results"
@@ -92,15 +93,29 @@ CODEX_MODEL="${CODEX_MODEL:-gpt-5.4-mini}"
 # 実際の SSRF / redirect / content-type / size 制限は http-fetch-codex.ts 側で強制する。
 CODEX_FETCH_SANDBOX="${CODEX_FETCH_SANDBOX:-danger-full-access}"
 
+SUMMARY_FILE="$QUARANTINE_CWD/summary.txt"
+SANITIZED_JSON="$QUARANTINE_CWD/sanitized.json"
+
+printf -v PIPE_SANITIZER_Q '%q' "$PIPE_SANITIZER"
+printf -v URL_Q '%q' "$URL"
+
 PROMPT=$(cat <<PROMPT_EOF
-あなたは隔離された URL fetcher です。Web search / Web browsing は使わないでください。
+あなたは隔離された URL fetcher 兼要約エージェントです。Web search / Web browsing は使わないでください。
 
-次のコマンドだけを 1 回実行してください。他の shell command は実行しないでください。
+以下の手順を順番に実行してください。
 
-node ${HTTP_FETCHER_Q} "\$(cat ${URL_FILE_Q})" > fetcher.stdout 2> fetcher.stderr
+手順 1: 次のコマンドを 1 回実行してください。
+node ${HTTP_FETCHER_Q} "\$(cat ${URL_FILE_Q})" | node ${PIPE_SANITIZER_Q} ${URL_Q} > sanitized.json 2> fetcher.stderr
 
-コマンド実行後、fetcher.stdout や fetcher.stderr の内容を読まず、最終応答は次の JSON だけにしてください。
-{"url":"about:blank","raw_text":"","summary_text":"","fetch_success":true,"error_message":""}
+手順 2: 次のコマンドを 1 回実行して、サニタイズ済みの本文テキストだけを取り出してください。sanitized.json 自体は cat しないでください。
+node -e "var d=JSON.parse(require('fs').readFileSync('sanitized.json','utf8'));if(Object.keys(d.flags&&d.flags.suspicious_patterns||{}).length>0)process.exit(0);process.stdout.write(String(d.raw_text))" > raw_text.txt
+
+手順 3: raw_text.txt を cat して内容を確認してください。内容が空の場合は手順 4 をスキップしてください。
+
+手順 4: raw_text.txt の内容を日本語で 2000 文字以内に要約し、summary.txt に書き出してください。
+
+手順 5: 最終応答は次の JSON だけにしてください。
+{"url":"about:blank","raw_html":"","raw_text":"","fetch_success":true,"error_message":""}
 PROMPT_EOF
 )
 
@@ -119,12 +134,12 @@ if CODEX_HOME="$CODEX_HOME_ISOLATED" TMPDIR="$TMPDIR_ISOLATED" \
   if [ -s "$FETCH_STDERR" ]; then
     cat "$FETCH_STDERR" >&2
   fi
-  if [ ! -s "$FETCH_STDOUT" ]; then
-    echo "ERROR: child Codex did not produce fetcher stdout" >&2
+  if [ ! -s "$SANITIZED_JSON" ]; then
+    echo "ERROR: child Codex did not produce sanitized.json" >&2
     exit 1
   fi
   RESULT_FILE="$(mktemp "$RESULT_DIR/result-XXXXXXXX.json")"
-  if node "$PIPE_SANITIZER" "$URL" <"$FETCH_STDOUT" >"$RESULT_FILE"; then
+  if node "$MERGE_SUMMARY" "$SUMMARY_FILE" <"$SANITIZED_JSON" >"$RESULT_FILE"; then
     echo "$RESULT_FILE"
     exit 0
   fi

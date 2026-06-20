@@ -8,8 +8,8 @@ import { sanitize } from './sanitize.ts'
 interface FetchOutput {
   error_message: string
   fetch_success: boolean
+  raw_html: string
   raw_text: string
-  summary_text: string
   url: string
 }
 
@@ -126,8 +126,8 @@ const parseFetchOutput = (text: string): FetchOutput => {
   return {
     error_message: validateString(parsed.error_message, 'error_message'),
     fetch_success: validateBoolean(parsed.fetch_success, 'fetch_success'),
+    raw_html: validateString(parsed.raw_html, 'raw_html'),
     raw_text: validateString(parsed.raw_text, 'raw_text'),
-    summary_text: validateString(parsed.summary_text, 'summary_text'),
     url: validateString(parsed.url, 'url'),
   }
 }
@@ -140,28 +140,55 @@ export const extractRawText = (json: string): FetchOutput => {
   return output
 }
 
+interface MergedFlags {
+  had_invisible_chars: boolean
+  suspicious_patterns: Record<string, number>
+  truncated: boolean
+}
+
+export const mergeFlags = (...results: ReturnType<typeof sanitize>[]): MergedFlags => {
+  const merged: MergedFlags = {
+    had_invisible_chars: false,
+    suspicious_patterns: {},
+    truncated: false,
+  }
+  for (const result of results) {
+    if (result.flags.had_invisible_chars) {
+      merged.had_invisible_chars = true
+    }
+    if (result.flags.truncated) {
+      merged.truncated = true
+    }
+    for (const [key, count] of Object.entries(result.flags.suspicious_patterns)) {
+      merged.suspicious_patterns[key] = (merged.suspicious_patterns[key] ?? 0) + count
+    }
+  }
+  return merged
+}
+
 export const sanitizeFetchOutput = (requestedUrl: string, input: string): string => {
   const output = extractRawText(input)
   const { url: fetchedUrl } = output
   validateUrlOriginMatch(requestedUrl, fetchedUrl)
-  const rawResult = sanitize(requestedUrl, fetchedUrl, output.raw_text)
-  const summaryResult = sanitize(requestedUrl, fetchedUrl, output.summary_text)
+  const rawHtmlResult = sanitize(requestedUrl, fetchedUrl, output.raw_html)
+  const rawTextResult = sanitize(requestedUrl, fetchedUrl, output.raw_text)
   return JSON.stringify({
-    fetched_url: rawResult.fetched_url,
-    flags: rawResult.flags,
-    meta: rawResult.meta,
-    raw_text: rawResult.text,
-    requested_url: rawResult.requested_url,
-    summary: summaryResult.text,
+    fetched_url: rawTextResult.fetched_url,
+    flags: mergeFlags(rawHtmlResult, rawTextResult),
+    meta: rawTextResult.meta,
+    raw_html: rawHtmlResult.text,
+    raw_text: rawTextResult.text,
+    requested_url: rawTextResult.requested_url,
   })
 }
 
 /**
- * fetcher の stdout バイト上限。50,000 字 raw_text (UTF-8 で最大 200KB) +
- * JSON framing を含めても通常 1MB を大きく超えないため、
- * 2MB を超えた時点で異常 (fetcher の不具合 / 攻撃的応答) と見なして fail-closed する。
+ * fetcher の stdout バイト上限。MAX_RESPONSE_BYTES (1MB) のレスポンスに対し、
+ * raw_html と raw_text が JSON エスケープ付きで含まれる。通常のテキスト/HTML では
+ * ~2-4MB に収まるが、制御文字 (\u00XX: 6 bytes/char) が多い入力では膨張し得る。
+ * 5MB を超える入力は制御文字過多等の異常と見なして fail-closed する。
  */
-export const MAX_STDIN_BYTES = 2_000_000
+export const MAX_STDIN_BYTES = 5_000_000
 
 export const readStdin = async (
   source: AsyncIterable<Uint8Array> = process.stdin,
@@ -206,7 +233,7 @@ const main = async (): Promise<void> => {
  */
 
 const buildFetchJson = (output: Record<string, unknown>): string =>
-  JSON.stringify({ summary_text: '', ...output })
+  JSON.stringify({ raw_html: '', ...output })
 
 const yieldChunks = async function* yieldChunks(chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
   for (const chunk of chunks) {
@@ -434,43 +461,43 @@ if (import.meta.vitest) {
   })
 
   describe('sanitizeFetchOutput 出力形式', () => {
-    it('summary と raw_text を両方サニタイズして出力する', () => {
+    it('raw_html と raw_text を両方サニタイズして出力する', () => {
       const input = buildFetchJson({
         error_message: '',
         fetch_success: true,
+        raw_html: '<html><body>content</body></html>',
         raw_text: 'full raw text here',
-        summary_text: 'short summary',
         url: 'https://example.com',
       })
       const result = sanitizeFetchOutput('https://example.com', input)
-      expect(result).toContain('"summary":"short summary"')
+      expect(result).toContain('"raw_html":"<html><body>content</body></html>"')
       expect(result).toContain('"raw_text":"full raw text here"')
+      expect(result).not.toContain('"summary"')
     })
 
-    it('summary_text が空でも raw_text はサニタイズされる', () => {
+    it('raw_html と raw_text で LLM マーカーを無害化する', () => {
       const input = buildFetchJson({
         error_message: '',
         fetch_success: true,
-        raw_text: 'full raw text here',
-        summary_text: '',
-        url: 'https://example.com',
-      })
-      const result = sanitizeFetchOutput('https://example.com', input)
-      expect(result).toContain('"summary":""')
-      expect(result).toContain('"raw_text":"full raw text here"')
-    })
-
-    it('両方のテキストで LLM マーカーを無害化する', () => {
-      const input = buildFetchJson({
-        error_message: '',
-        fetch_success: true,
+        raw_html: 'html <|im_start|> content',
         raw_text: 'raw <|im_start|> text',
-        summary_text: 'summary <|im_start|> text',
         url: 'https://example.com',
       })
       const result = sanitizeFetchOutput('https://example.com', input)
       expect(result).toContain('[FILTERED:chat_template]')
       expect(result).not.toContain('<|im_start|>')
+    })
+
+    it('raw_html にのみ LLM マーカーがある場合も flags に反映される', () => {
+      const input = buildFetchJson({
+        error_message: '',
+        fetch_success: true,
+        raw_html: '<script><|im_start|></script>',
+        raw_text: 'clean text',
+        url: 'https://example.com',
+      })
+      const result = sanitizeFetchOutput('https://example.com', input)
+      expect(result).toContain('"chat_template"')
     })
   })
 

@@ -40,6 +40,7 @@ export default {
     includeSource: [
       'shared/**/*.ts',
       'skills/*/scripts/pipe-sanitize*.ts',
+      'skills/*/scripts/merge-summary*.ts',
       'skills/*/scripts/http-fetch*.ts',
       '.codex/hooks/**/*.ts',
     ],
