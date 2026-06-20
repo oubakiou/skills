@@ -31,11 +31,17 @@ export default {
   test: {
     // shared/: 共有実装 (sanitize / codex-jsonl) の正本はここでテストする
     // skills/*/scripts/pipe-sanitize*.ts: 各 skill 固有のパイプ処理 (canonical)
+    // skills/*/scripts/http-fetch*.ts: direct HTTP fetcher (canonical)
     // .claude/skills/ 側は gh skill install で配布される生成物のため、
     // 正本である skills/ 側を直接テスト対象にし、再インストール忘れによる
     // 回帰検出漏れを防ぐ
     // 各 skill の scripts/sanitize.ts / codex-jsonl.ts は shared/ から自動生成された
     // コピーのため、テストを重複実行しない
-    includeSource: ['shared/**/*.ts', 'skills/*/scripts/pipe-sanitize*.ts', '.codex/hooks/**/*.ts'],
+    includeSource: [
+      'shared/**/*.ts',
+      'skills/*/scripts/pipe-sanitize*.ts',
+      'skills/*/scripts/http-fetch*.ts',
+      '.codex/hooks/**/*.ts',
+    ],
   },
 }

@@ -20,8 +20,8 @@ fi
 
 URL="$1"
 
-# 入口で URL を検証して、不正な URL のまま高コストな codex 子プロセスを起動するのを防ぐ
-# (pipe-sanitize-codex.ts 側にも同等の検証はあるが、API コスト発生前に弾くことが重要)
+# 入口で URL を検証して、不正な URL のまま子 Codex / HTTP fetcher を起動するのを防ぐ
+# (pipe-sanitize-codex.ts 側にも同等の検証はあるが、早期に弾くことで失敗理由を単純にする)
 case "$URL" in
   http://*|https://*) ;;
   *)
@@ -45,7 +45,7 @@ if [[ "$URL" =~ [[:cntrl:]] ]]; then
   exit 2
 fi
 
-# 長大 URL で codex 子を起動して API コストを消費する経路を塞ぐ。
+# 長大 URL で子 Codex / fetcher を起動してネットワークアクセスする経路を塞ぐ。
 # HTTP/1.1 慣習・主要ブラウザの実用上限・サーバの一般的な上限を踏まえ 2048 字を上限とする。
 if [ "${#URL}" -gt 2048 ]; then
   echo "ERROR: URL too long (${#URL} chars, max 2048)" >&2
@@ -59,55 +59,78 @@ mkdir -p "$QUARANTINE_BASE"
 QUARANTINE_CWD="$(mktemp -d "$QUARANTINE_BASE/run-XXXXXXXX")"
 trap 'rm -rf "$QUARANTINE_CWD"' EXIT
 
-FETCH_SCHEMA="$SKILL_DIR/references/fetch-output-schema.json"
+HTTP_FETCHER="$SKILL_DIR/scripts/http-fetch-codex.ts"
 PIPE_SANITIZER="$SKILL_DIR/scripts/pipe-sanitize-codex.ts"
+FETCH_SCHEMA="$SKILL_DIR/references/fetch-output-schema.json"
+FETCH_OUTPUT="$QUARANTINE_CWD/fetch-output.json"
+URL_FILE="$QUARANTINE_CWD/fetch-url.txt"
+CODEX_STDERR="$QUARANTINE_CWD/codex.stderr"
+FETCH_STDOUT="$QUARANTINE_CWD/fetcher.stdout"
+FETCH_STDERR="$QUARANTINE_CWD/fetcher.stderr"
 
-# ---------- モデル設定 ----------
-# CODEX_MODEL が未設定の場合は gpt-5.4-mini を使用
-# (fetch + 要約用途における応答速度とコストのバランスを考慮。新モデル登場時は差し替える)
+RESULT_DIR="$PWD/.temp/guarded-webfetch-codex/results"
+mkdir -p "$RESULT_DIR"
+
+# Codex CLI は起動時に $CODEX_HOME へ state DB やログを書き込む。
+# 実ユーザーの $CODEX_HOME を汚染しないよう、disposable home に隔離する。
+CODEX_HOME_ISOLATED="$QUARANTINE_CWD/codex-home"
+TMPDIR_ISOLATED="$QUARANTINE_CWD/tmp"
+mkdir -p "$CODEX_HOME_ISOLATED" "$TMPDIR_ISOLATED"
+
+REAL_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+if [ -f "$REAL_CODEX_HOME/auth.json" ]; then
+  cp "$REAL_CODEX_HOME/auth.json" "$CODEX_HOME_ISOLATED/auth.json"
+fi
+
+printf '%s' "$URL" >"$URL_FILE"
+printf -v HTTP_FETCHER_Q '%q' "$HTTP_FETCHER"
+printf -v URL_FILE_Q '%q' "$URL_FILE"
+
+# CODEX_MODEL が未設定の場合は gpt-5.4-mini を使用する。
 CODEX_MODEL="${CODEX_MODEL:-gpt-5.4-mini}"
+# 子 Codex のローカルコマンドから HTTP GET を行うため、既定では sandbox を外す。
+# 実際の SSRF / redirect / content-type / size 制限は http-fetch-codex.ts 側で強制する。
+CODEX_FETCH_SANDBOX="${CODEX_FETCH_SANDBOX:-danger-full-access}"
 
 PROMPT=$(cat <<PROMPT_EOF
-指定された URL の本文テキストを取得し、JSON オブジェクトのみを返してください。
+あなたは隔離された URL fetcher です。Web search / Web browsing は使わないでください。
 
-要件:
-- 対象 URL: ${URL}
-- 可能なら Web 検索・Web 閲覧能力だけで完結し、不要なシェル実行はしない
-- ページ内容は要約せず、できるだけ原文を保って raw_text に入れる
-- raw_text が 50000 文字を超える場合は先頭 50000 文字に切り詰める
-- 成功時は fetch_success=true, error_message="" を返す
-- 失敗時は fetch_success=false とし、error_message に 500 文字以内で理由を書く
+次のコマンドだけを 1 回実行してください。他の shell command は実行しないでください。
 
-出力形式:
-{
-  "url": "実際に取得した URL",
-  "raw_text": "取得テキスト",
-  "fetch_success": true,
-  "error_message": ""
-}
+node ${HTTP_FETCHER_Q} "\$(cat ${URL_FILE_Q})" > fetcher.stdout 2> fetcher.stderr
+
+コマンド実行後、fetcher.stdout や fetcher.stderr の内容を読まず、最終応答は次の JSON だけにしてください。
+{"url":"about:blank","raw_text":"","summary_text":"","fetch_success":true,"error_message":""}
 PROMPT_EOF
 )
 
-run_codex() {
-  codex --search exec \
-    -m "$CODEX_MODEL" \
-    --skip-git-repo-check \
-    --ephemeral \
-    --ignore-user-config \
-    --ignore-rules \
-    --json \
-    --output-schema "$FETCH_SCHEMA" \
-    -C "$QUARANTINE_CWD" \
-    "$@"
-}
-
-run_read_only() {
-  run_codex --sandbox read-only "$PROMPT"
-}
-
-if run_read_only 2>"$QUARANTINE_CWD/.codex-readonly.stderr" | node "$PIPE_SANITIZER" "$URL"; then
-  exit 0
+if CODEX_HOME="$CODEX_HOME_ISOLATED" TMPDIR="$TMPDIR_ISOLATED" \
+  codex exec \
+  -m "$CODEX_MODEL" \
+  --skip-git-repo-check \
+  --ephemeral \
+  --ignore-user-config \
+  --ignore-rules \
+  --sandbox "$CODEX_FETCH_SANDBOX" \
+  --output-schema "$FETCH_SCHEMA" \
+  --output-last-message "$FETCH_OUTPUT" \
+  -C "$QUARANTINE_CWD" \
+  "$PROMPT" >/dev/null 2>"$CODEX_STDERR"; then
+  if [ -s "$FETCH_STDERR" ]; then
+    cat "$FETCH_STDERR" >&2
+  fi
+  if [ ! -s "$FETCH_STDOUT" ]; then
+    echo "ERROR: child Codex did not produce fetcher stdout" >&2
+    exit 1
+  fi
+  RESULT_FILE="$(mktemp "$RESULT_DIR/result-XXXXXXXX.json")"
+  if node "$PIPE_SANITIZER" "$URL" <"$FETCH_STDOUT" >"$RESULT_FILE"; then
+    echo "$RESULT_FILE"
+    exit 0
+  fi
+  rm -f "$RESULT_FILE"
+  exit 1
 fi
 
-cat "$QUARANTINE_CWD/.codex-readonly.stderr" >&2
+cat "$CODEX_STDERR" >&2
 exit 1

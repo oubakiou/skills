@@ -42,6 +42,7 @@ vitest の in-source testing を採用している。テストは各スクリプ
 
 - `shared/**/*.ts` — 共有実装の正本
 - `skills/*/scripts/pipe-sanitize*.ts` — 各 skill 固有のパイプ処理
+- `skills/*/scripts/http-fetch*.ts` — direct HTTP fetcher
 - `.codex/hooks/**/*.ts` — Codex の hook スクリプト（`vp check --fix` の自動実行等）
 
 `skills/*/scripts/sanitize.ts` と `codex-jsonl.ts` は `shared/` から自動生成されたコピーのため、テスト対象から除外している。

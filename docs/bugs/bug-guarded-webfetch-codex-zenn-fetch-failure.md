@@ -121,11 +121,12 @@ export const extractRawText = (jsonl: string): CodexFetchOutput => {
 
 ### 4.2 根本修正
 
-根本修正として、Codex の `web_search` / search-browse 経路への依存をやめ、隔離プロセス内に Node.js 標準 `fetch()` ベースの direct HTTP fetcher を持つ。`guarded-webfetch-codex` を URL fetcher として扱い続けるなら、取得は LLM の検索・閲覧判断ではなく決定的なコードで実行する。
+根本修正として、Codex の `web_search` / search-browse 経路への依存をやめ、Codex 子プロセス内に Node.js 標準 `fetch()` ベースの direct HTTP fetcher を持つ。`guarded-webfetch-codex` を URL fetcher として扱い続けるため、取得は Codex の検索・閲覧 tool ではなく決定的なコードで実行する。
 
 方針:
 
-- `quarantine-fetch-codex.sh` から `node scripts/http-fetch-codex.ts "<URL>"` を起動する
+- `quarantine-fetch-codex.sh` から `codex exec` 子プロセスを起動する
+- 子 Codex は `node scripts/http-fetch-codex.ts "$(cat fetch-url.txt)"` だけを実行する
 - `http-fetch-codex.ts` は `fetch-output-schema.json` 互換の `{ url, raw_text, fetch_success, error_message }` JSON を stdout に出す
 - `pipe-sanitize-codex.ts` は Codex JSONL ではなく fetcher JSON を検証し、既存の `sanitize()` とオリジン検証を適用する
 - `codex --search exec` は主経路から外し、URL 本文取得には使わない
@@ -155,9 +156,9 @@ Zenn 本文を必ず取得できることは、最小修正の受け入れ基準
 
 ### 5.2 根本修正
 
-- `quarantine-fetch-codex.sh` の主経路が `codex --search exec` ではなく Node.js direct HTTP fetcher になること。
-- direct HTTP fetcher が `fetch-output-schema.json` 互換 JSON を出力し、成功時は本文を `raw_text` に入れること。
-- `https://zenn.dev/oubakiou/articles/b9db61885cd7be` または同等構造の fixture から本文を抽出できること。
+- `quarantine-fetch-codex.sh` の主経路が `codex --search exec` ではなく `codex exec` 子プロセス内の Node.js direct HTTP fetcher になること。
+- 子 Codex 内の direct HTTP fetcher が `fetch-output-schema.json` 互換 JSON を出力し、成功時は本文を `raw_text` に入れること。
+- Zenn 相当 fixture から本文を抽出でき、手動 E2E で `https://zenn.dev/oubakiou/articles/b9db61885cd7be` の本文取得を確認できること。
 - 危険 URL (`file:`, `javascript:`, localhost, private IP, link-local, metadata endpoint 等) が fail-closed されること。
 - クロスオリジンリダイレクト、HTTPS→HTTP 降格、ポート変更が fail-closed されること。
 - timeout、最大レスポンスサイズ、許可外 content-type が fail-closed されること。
@@ -190,7 +191,7 @@ E2E で Zenn 実 URL を固定して取得成功を検査するテストは追�
 
 ## 7. 関連
 
-- [skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh](../../skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh) — direct HTTP fetcher 起動と pipe 接続のエントリポイント
+- [skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh](../../skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh) — 子 Codex 起動と pipe 接続のエントリポイント
 - [skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts](../../skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts) — fetcher JSON 検証と `fetch_success=false` の fail-closed 処理
 - [skills/guarded-webfetch-codex/references/design-plan.md](../../skills/guarded-webfetch-codex/references/design-plan.md) — direct HTTP fetcher 化後の脅威モデルと設計上の割り切り
 - [README.md](../../README.md) — guarded 系スキルの防御アーキテクチャと Codex 版の制約
