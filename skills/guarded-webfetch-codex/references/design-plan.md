@@ -19,14 +19,14 @@
 
 ## 1. スキルの目的
 
-指定された URL のコンテンツを Claude 親エージェントが扱う際、Codex 子プロセスを隔離 fetcher として使用し、プロンプトインジェクション攻撃の影響を抑制するためのガード層を提供する。
+指定された URL のコンテンツを Claude 親エージェントが扱う際、Node.js 標準 `fetch()` による direct HTTP fetcher を隔離取得層として使用し、プロンプトインジェクション攻撃の影響を抑制するためのガード層を提供する。
 
-設計の核は `guarded-webfetch-claude` と同じく **「untrusted content と特権的判断・ツール実行の論理的分離」** にある。Codex 子が Web 取得を担当し、その出力を静的サニタイザに通した結果だけを親 Claude に渡すことで、生の Web コンテンツが main agent のコンテキストに直接入ることを避ける。
+設計の核は `guarded-webfetch-claude` と同じく **「untrusted content と特権的判断・ツール実行の論理的分離」** にある。HTTP fetcher が URL の取得と素朴な本文抽出だけを担当し、その出力を静的サニタイザに通した結果だけを親 Claude に渡すことで、生の Web コンテンツが main agent のコンテキストに直接入ることを避ける。
 
 本設計では次の 3 層を採用する。
 
-1. **Codex 子プロセスによる取得 (準ハード)** — `codex --search exec` を使って URL の本文テキスト取得を担当させる。Claude 版の `WebFetch only` ほど厳密なツール固定はできないため、「準ハード」と位置付ける
-2. **静的サニタイザ (ハード)** — 子プロセスの JSONL 出力を `pipe-sanitize-codex.ts` にパイプし、最終 JSON メッセージの抽出、オリジン検証、Unicode 不可視文字除去、LLM マーカー無害化をランタイム強制する
+1. **direct HTTP fetcher による取得 (ハード)** — `node http-fetch-codex.ts <URL>` を使い、HTTP GET、リダイレクト制限、サイズ制限、content-type 検証、本文抽出を決定的なコードで実行する。Codex の `web_search` やモデル判断には依存しない
+2. **静的サニタイザ (ハード)** — fetcher の JSON 出力を `pipe-sanitize-codex.ts` にパイプし、出力スキーマ検証、オリジン検証、Unicode 不可視文字除去、LLM マーカー無害化をランタイム強制する
 3. **安全性フラグによる行動制御 (ソフト)** — `sanitize.ts` が出力する `suspicious_patterns`、`had_invisible_chars`、`truncated` 等をもとに、親 Claude が応答可否を判断する
 
 ### アーキテクチャ概要
@@ -37,21 +37,21 @@ main Claude agent
        │
        │  パイプ内部:
        │  ┌────────────────────────────────────┐
-       │  │ 隔離プロセス (codex --search exec) │
-       │  │  Web取得 → 最終JSONメッセージ      │
+       │  │ direct HTTP fetcher (Node fetch)   │
+       │  │  HTTP GET → 本文抽出 → JSON        │
        │  └──────────┬─────────────────────────┘
-       │             │ stdout (JSONL events)
+       │             │ stdout (fetch-output JSON)
        │             ▼
        │  ┌────────────────────────────────────┐
        │  │ pipe-sanitize-codex.ts            │
-       │  │  agent_message抽出 → sanitize()   │
+       │  │  schema検証 → sanitize()          │
        │  └──────────┬─────────────────────────┘
        │             │ stdout (サニタイズ済みJSON)
        ▼
   main Claude agent のコンテキスト: サニタイズ済みテキスト + flags のみ
 ```
 
-この skill はインジェクション対策の **緩和策** であり、完全防御ではない。特に Codex 子のツール権限を Claude 版ほど厳密に制約できない点は重要な差分である。
+この skill はインジェクション対策の **緩和策** であり、完全防御ではない。direct HTTP fetcher 化により LLM 子プロセスのツール横滑りやモデル判断による取得失敗は避けるが、SSRF、リダイレクト悪用、巨大レスポンス、HTML 内の自然言語インジェクションは引き続き明示的に制御する必要がある。
 
 ## 2. 脅威モデル
 
@@ -60,9 +60,11 @@ main Claude agent
 - **不可視 Unicode 攻撃**: Tag characters (U+E0000-U+E007F)、zero-width 文字、bidi オーバーライドを使った不可視命令の埋め込み
 - **LLM チャットテンプレート擬装**: `<|im_start|>`, `</untrusted_content>`, `[INST]`, `Human:` などのマーカーで役割境界の脱出を試みる
 - **間接的指示注入**: "ignore previous instructions", "you are now", "new instructions:" などのパターン
-- **JSON 出力偽装**: 子 Codex が最終メッセージで schema に見合うが悪意あるペイロードを返す試み
+- **JSON 出力偽装**: fetcher 出力に schema に見合うが悪意あるペイロードが混入する試み
 - **URL 改竄**: 要求した URL と異なるオリジンのコンテンツを返し、親に別サイトの内容を誤認させる試み
-- **ツール権限の横滑り**: Codex 子が Web 取得以外の手段を使おうとするリスク
+- **SSRF / 内部ネットワーク到達**: URL やリダイレクト先が localhost、private IP、link-local、metadata endpoint 等を指すリスク
+- **リダイレクト悪用**: 許可された外部 URL から別オリジンや危険なスキームへ遷移するリスク
+- **巨大レスポンス / slow response**: サイズ制限や timeout を回避してリソースを消費させるリスク
 - **`[FILTERED]` / `[ESCAPED:]` マーカーの悪用**: sanitize.ts の付与マーカーとの区別を曖昧にする試み
 
 想定しない攻撃:
@@ -76,7 +78,7 @@ main Claude agent
 以下のいずれかに該当するとき発火させる。
 
 - ユーザーが URL を提示し、その内容取得・要約・分析を要求した
-- 親を Claude に保ったまま、子 fetcher として Codex を使いたい
+- 親を Claude に保ったまま、Codex skill として direct HTTP fetcher を使いたい
 - Web コンテンツを Claude 親のコンテキストに直接入れたくない
 
 以下の場合は本スキルの対象外とする。
@@ -91,16 +93,14 @@ main Claude agent
 前提条件:
 
 - Node.js 23.6 以降
-- `codex` CLI がインストール済みであること
-- Codex が認証済みであること（ChatGPT アカウント OAuth ログイン (`codex login`) または `OPENAI_API_KEY` 環境変数）
-- `codex --search exec` が利用可能であること
+- direct HTTP fetcher から対象 URL への `GET` / `HEAD` 相当のネットワーク到達が許可されていること
 
 Codex 版の重要な制約:
 
-- `codex exec` には Claude 版の `--allowedTools "WebFetch"` に相当する細粒度のツール固定が見えていない
-- `--search` は親 `codex` コマンドに付与し、`exec` サブコマンドに Web 取得能力を渡す必要がある
-- `--output-schema` は Claude 版の JSON Schema より厳格で、`properties` にあるキーをすべて `required` に含める必要がある
-- `read-only` を唯一の sandbox 方針とし、失敗時も追加権限には昇格しない
+- `codex --search exec` は URL fetch 専用ではなく、検索インデックス・web tool・モデル判断・ローカルコマンド実行可否に依存するため、任意 URL 本文取得の主経路には使わない
+- direct HTTP fetcher は `GET` のみを実行し、ユーザー指定 URL と各リダイレクト先を検証する
+- sandbox は Node.js fetcher の実行に必要な最小権限を使う。Codex CLI の `--sandbox read-only` 初期化失敗には依存しない
+- JavaScript 実行が必要な SPA の本文抽出は保証しない。SSR HTML、plain text、JSON、XML を主対象にする
 
 ## 5. ディレクトリ構成
 
@@ -113,13 +113,15 @@ guarded-webfetch-codex/
 └── scripts/
     ├── check-node-version.sh
     ├── codex-jsonl.ts
+    ├── http-fetch-codex.ts
     ├── quarantine-fetch-codex.sh
     ├── pipe-sanitize-codex.ts
     └── sanitize.ts
 ```
 
 - `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー（全 4 skill で同一実装）
-- `codex-jsonl.ts` は Codex JSONL から最終 `agent_message` を取り出す共通ユーティリティ。`shared/codex-jsonl/codex-jsonl.ts` を正本とし、`guarded-websearch-codex` にも同じく自動生成コピーが配布される
+- `http-fetch-codex.ts` は direct HTTP fetcher。Node.js 標準 `fetch()` で URL を取得し、本文テキストを含む `fetch-output-schema.json` 互換 JSON を stdout に出力する
+- `codex-jsonl.ts` は過去の `codex --search exec` 経路との互換・移行期間用ユーティリティ。新しい主経路では使用しない
 - `check-node-version.sh` は main agent の事前チェックと quarantine スクリプトからのサブプロセス呼び出しの両方で使う
 - 一時ファイルや隔離用 cwd は `.temp/guarded-webfetch-codex/` 配下に実行ごとの `run-XXXXXXXX/` を `mktemp -d` で切り、`trap EXIT` で削除する（並列起動や前回実行の残留ファイル混入を避けるため）
 
@@ -141,38 +143,39 @@ bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<�
 
 `quarantine-fetch-codex.sh` は以下を行う。
 
-1. Node.js と `codex` CLI の存在確認
+1. Node.js の存在確認
 2. URL の入口検証 (`http://` / `https://` プレフィクス、バッククォート / `$()`、制御文字) を実施
 3. `.temp/guarded-webfetch-codex/run-XXXXXXXX/` を `mktemp -d` で隔離用 cwd として作成し、`trap EXIT` で削除する
-4. `codex --search exec --sandbox read-only --ephemeral --ignore-user-config --ignore-rules --json --output-schema ...` を試行
-5. read-only 失敗時は停止し、stderr をそのまま返す
-6. Codex の JSONL 出力を `pipe-sanitize-codex.ts` にパイプ
+4. `node "$SCRIPT_DIR/http-fetch-codex.ts" "$URL"` を実行し、取得結果 JSON を stdout に出す
+5. fetcher の JSON 出力を `pipe-sanitize-codex.ts` にパイプする
+6. 取得失敗時は `fetch_success=false` と `error_message` を返し、後段で fail-closed する
 
-Codex 子に与えるプロンプトでは次を要求する。
+`http-fetch-codex.ts` は次を実施する。
 
-- 対象 URL の本文テキスト取得
-- 可能なら Web 検索・Web 閲覧能力だけで完結すること
-- 不要なシェル実行を行わないこと
-- `raw_text` は可能な限り原文を保つこと
-- 50,000 文字超は先頭 50,000 文字に切り詰めること
-- 最終出力は JSON オブジェクトのみとすること
+- 対象 URL と各リダイレクト先の検証 (`http:` / `https:` のみ)
+- localhost、private IP、link-local、metadata endpoint 等の拒否
+- `GET` のみ実行
+- timeout と最大レスポンスサイズの強制
+- リダイレクト回数上限の強制
+- `content-type` の許可リスト検証
+- HTML / plain text / JSON / XML からの本文テキスト抽出
+- `fetch-output-schema.json` 互換 JSON の出力
 
-### ステップ 3: JSONL 抽出とサニタイズ
+### ステップ 3: fetch 出力検証とサニタイズ
 
 `pipe-sanitize-codex.ts` は以下を行う。
 
 1. CLI 引数の URL を検証（`http://` または `https://` のみ許可）
-2. stdin から Codex の JSONL イベント列を読み、空なら fail-closed
-3. `codex-jsonl.ts` の `extractLastAgentMessage` で `type === "item.completed"` かつ `item.type === "agent_message"` の最終イベントを抽出
-4. `item.text` を JSON として parse し、`url`, `raw_text`, `fetch_success`, `error_message` を検証
-5. `fetch_success === false` なら fail-closed で終了
-6. CLI 引数の URL と取得 URL の遷移を `isAllowedOriginTransition` で検証 (同一オリジン / HTTPS 昇格 / www. プレフィクス差を許容)。許容範囲外なら fail-closed
-7. `sanitize(requestedUrl, fetchedUrl, rawText)` を実行し、`SanitizedDoc` JSON を stdout に出力
+2. stdin から fetcher の JSON を読み、空なら fail-closed
+3. JSON として parse し、`url`, `raw_text`, `fetch_success`, `error_message` を検証
+4. `fetch_success === false` なら `error_message` をサニタイズしたうえで fail-closed
+5. CLI 引数の URL と取得 URL の遷移を `isAllowedOriginTransition` で検証 (同一オリジン / HTTPS 昇格 / www. プレフィクス差を許容)。許容範囲外なら fail-closed
+6. `sanitize(requestedUrl, fetchedUrl, rawText)` を実行し、`SanitizedDoc` JSON を stdout に出力
 
 ### ステップ 4: 安全性判定
 
 親 Claude は `flags` に基づき安全性判定を行う。
-`fetched_url` は Codex 子の自己申告であり、Codex が実際にその URL を fetch した完全保証ではない点に留意する。
+`fetched_url` は HTTP fetcher が最終的に取得した URL であり、リダイレクト後の URL が入る。
 
 | 条件                                                                                                                 | 判定       | 振る舞い                |
 | -------------------------------------------------------------------------------------------------------------------- | ---------- | ----------------------- |
@@ -182,11 +185,11 @@ Codex 子に与えるプロンプトでは次を要求する。
 | `suspicious_patterns` が 1 件以上                                                                                    | 要確認     | actionable な出力を保留 |
 | `truncated` が `true`                                                                                                | 情報不完全 | 切り詰めを通知          |
 
-許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、エラー終了する。許容範囲は Claude 版 (`isAllowedOriginTransition`) と揃えており、Codex 子が末尾 `/` 補完 / www. 補完 / HTTPS 昇格などの正規化を行うことを前提にしている。
+許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、エラー終了する。許容範囲は Claude 版 (`isAllowedOriginTransition`) と揃えており、HTTP fetcher が末尾 `/` 補完 / www. 補完 / HTTPS 昇格などの一般的な正規化を受けることを前提にしている。
 
 ## 7. サニタイザの処理層
 
-`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（Claude を含む全 4 skill で同一）。対象は Codex 子が返した本文テキストであり、以下の 2 層に特化する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（Claude を含む全 4 skill で同一）。対象は HTTP fetcher が抽出した本文テキストであり、以下の 2 層に特化する。
 
 ### Unicode 層
 
@@ -216,16 +219,21 @@ Codex 子に与えるプロンプトでは次を要求する。
 
 ### ランタイム制約
 
-| 項目       | 値                                         | 制約の強度 |
-| ---------- | ------------------------------------------ | ---------- |
-| 親コマンド | `codex --search exec`                      | 準ハード   |
-| sandbox    | `read-only` 固定                           | ハード     |
-| 永続化     | `--ephemeral`                              | ハード     |
-| 出力形式   | `--json`                                   | ハード     |
-| schema     | `--output-schema fetch-output-schema.json` | ハード     |
-| cwd        | `-C "$QUARANTINE_CWD"`                     | ハード     |
+| 項目          | 値                                   | 制約の強度 |
+| ------------- | ------------------------------------ | ---------- |
+| 取得コマンド  | `node http-fetch-codex.ts <URL>`     | ハード     |
+| HTTP method   | `GET` のみ                           | ハード     |
+| URL scheme    | `http:` / `https:` のみ              | ハード     |
+| redirect      | 回数上限 + 各遷移先の再検証          | ハード     |
+| 内部宛先拒否  | localhost / private IP 等を拒否      | ハード     |
+| timeout       | 固定上限                             | ハード     |
+| response size | 固定上限                             | ハード     |
+| content-type  | text / HTML / JSON / XML 系に制限    | ハード     |
+| 出力形式      | `fetch-output-schema.json` 互換 JSON | ハード     |
+| cwd           | `$QUARANTINE_CWD`                    | ハード     |
 
-- `--ignore-user-config --ignore-rules` はホスト側の Codex 設定や execpolicy `.rules` から隔離プロセスの挙動が影響を受けることを避け、再現性と決定論性を高めるために付与する
+- HTTP fetcher は Codex CLI や LLM を起動しない。ホスト側の Codex 設定、execpolicy `.rules`、`--search` の検索・閲覧挙動に影響されない
+- DNS 解決後の IP が内部アドレスの場合は拒否する。リダイレクトごとに同じ検証を繰り返す
 
 ### 出力スキーマ（`fetch-output-schema.json`）
 
@@ -243,60 +251,64 @@ Codex 子に与えるプロンプトでは次を要求する。
 }
 ```
 
-- `error_message` を省略可能にせず常に required にするのは Codex 側 schema 制約に合わせるため
+- `error_message` を省略可能にせず常に required にすることで、成功・失敗の両方で pipe 側の検証を単純に保つ
 - `raw_text` の `maxLength` は schema に持たせず、sanitize.ts の truncation に一本化する
 
 ### `quarantine-fetch-codex.sh`
 
-このスクリプトは read-only を第一候補にする。
+このスクリプトは Node.js fetcher を隔離用 cwd で起動する。
 
-- **狙い**: Web 取得だけなら書き込み不要と考え、最小権限で通す
-- **動作**: read-only 失敗時は追加権限に昇格せず停止する
+- **狙い**: LLM / web_search / shell fallback に依存せず、URL 取得を決定的なコードで実行する
+- **動作**: fetcher が `fetch_success=false` を返した場合は pipe 側で fail-closed する
 
 ### `pipe-sanitize-codex.ts`
 
-Codex 出力が Claude 版と異なり JSONL イベント列であることが最大の差分である。したがって sanitize 前に次の抽出層が必要になる。
+direct HTTP fetcher の出力 JSON を sanitize 前に検証する。
 
-- 行ごとに JSON parse を試みる
-- `item.completed` / `agent_message` の最終メッセージだけを採用する
-- `error` イベントしかない場合は fail-closed
-- 最終メッセージが JSON でない場合も fail-closed
+- stdin 全体を JSON として parse する
+- `url`, `raw_text`, `fetch_success`, `error_message` の型を検証する
+- `fetch_success=false` の場合は `error_message` をサニタイズして fail-closed する
+- 取得 URL のオリジン遷移を検証する
 
 ## 9. テストケース
 
 最低限確認すべきケース:
 
-1. **正常系**: `https://example.com` を取得し、サニタイズ済み JSON が返る
-2. **マーカー検出**: `raw_text` に `<|im_start|>` を含む JSONL を `pipe-sanitize-codex.ts` に与え、`[FILTERED:chat_template]` に置換される
-3. **error イベントのみ**: Codex JSONL に `type: "error"` しかない場合、fail-closed で終了する
-4. **fetch_success=false**: 最終メッセージで失敗応答を返した場合、親へ通さずエラー終了する
+1. **正常系**: fixture HTML / text を取得し、サニタイズ済み JSON が返る
+2. **Zenn 相当 HTML**: Zenn 記事の構造を模した fixture から本文テキストを抽出できる
+3. **マーカー検出**: `raw_text` に `<|im_start|>` を含む JSON を `pipe-sanitize-codex.ts` に与え、`[FILTERED:chat_template]` に置換される
+4. **fetch_success=false**: fetcher が失敗応答を返した場合、サニタイズ済み `error_message` を含めて fail-closed する
 5. **オリジン不一致**: 要求 URL と取得 URL のオリジンが異なる場合に停止する
-6. **read-only 失敗**: そのまま停止して stderr を返す
-7. **巨大テキスト**: 50,000 文字超で `truncated: true` が立つ
+6. **危険 URL 拒否**: localhost / private IP / metadata IP / 非 HTTP scheme を拒否する
+7. **リダイレクト検証**: 許容リダイレクトは通し、クロスオリジンや HTTPS→HTTP 降格は停止する
+8. **巨大レスポンス**: fetcher と sanitizer の両方でサイズ上限が効く
+9. **timeout**: 応答が遅い場合に失敗応答を返す
 
-テストは `pipe-sanitize-codex.ts` の in-source testing と、`quarantine-fetch-codex.sh` の手動 E2E で行う。
+テストは `http-fetch-codex.ts` と `pipe-sanitize-codex.ts` の in-source testing を主とし、外部サイトに依存する E2E は手動確認に留める。Zenn 実 URL を固定した自動テストは、外部サイト・DNS・ネットワーク制約に依存するため追加しない。
 
 ## 10. 設計上の割り切り
 
-- **Codex 子のツール権限を厳密には縛れない**: Claude 版の `WebFetch only` 相当の強制が見えていない。プロンプトと sandbox で抑制するが、完全なハード制約ではない
-- **read-only 失敗時の救済は持たない**: 追加権限への昇格経路は設けない
-- **Codex の Web 取得内容はモデル判断を通る**: `raw_text` は Codex 子が最終メッセージとして返すため、完全な「生 HTML 直出し」ではない。取得と整形の間にモデル判断が入る
+- **JavaScript 実行はしない**: SPA で本文がクライアント実行後にしか現れないページは取得できない場合がある
+- **本文抽出は素朴な実装から始める**: 初期実装では追加依存を避け、HTML の一般的な本文候補 (`article`, `main`, JSON-LD 等) と text / JSON / XML を対象にする
+- **HTTP fetcher に必要なネットワーク権限は環境依存**: agent / sandbox / CI のネットワーク policy で外部 GET が禁止されている場合は失敗する
+- **SSRF 対策は必須**: URL と全リダイレクト先の検証、DNS 解決後 IP の拒否リスト、サイズ・timeout 上限を fetcher 側で強制する
 - **main Claude はサニタイズ済み全文を見る**: 自然言語ベースの説得・誘導までは静的サニタイザでは防げない
-- **JSONL フォーマット依存**: `pipe-sanitize-codex.ts` は現在観測した Codex イベント形式に依存する。CLI 側のイベント schema 変更には追随が必要
 - **完全防御ではない**: 要確認時に親 Claude が出力を抑制する運用が前提
 
 ## 11. 将来的な拡張候補
 
-- **Codex 側の finer-grained tool permission 対応**: `Web only` や `no shell` を CLI オプションで明示できるようになれば、隔離強度を上げられる
-- **Codex JSONL parser の厳密化**: イベント schema を型定義や JSON Schema として固定し、CLI 変更検知をしやすくする
+- **HTML 抽出ライブラリの導入**: 標準実装で本文抽出品質が不足する場合、`jsdom` / `linkedom` / Readability 系を比較検討する
+- **サイト固有 extractor**: Zenn など構造が安定しているサイトについて、汎用 extractor の前後に小さなサイト固有処理を追加する
+- **HTTP cache / retry policy**: 一時的な DNS / timeout 失敗に対する限定的 retry を導入する
 - **guarded-websearch-codex**: 検索結果一覧向けに同じ構造を展開する
-- **二段隔離**: Codex 子を取得専用、別プロセスを要約専用に分離する
+- **二段隔離**: HTTP fetcher を取得専用、別プロセスを要約専用に分離する
 
 ## 12. 参考資料
 
 - [`guarded-webfetch-claude/references/design-plan.md`](../../guarded-webfetch-claude/references/design-plan.md)（本スキルの基盤となる claude 版 design-plan、同一リポジトリ内）
 - Codex CLI `codex exec --help`（CLI ヘルプ出力）
 - Codex CLI `codex --help`（CLI ヘルプ出力）
+- Node.js `fetch` / WHATWG Fetch API
 - Codex 公式ドキュメント "Sandbox & approvals" (https://github.com/openai/codex/blob/main/docs/sandbox.md)
 - Codex 公式ドキュメント "Advanced configuration"（Sandbox & Approval Settings、`sandbox_mode` 等の解説を含む）(https://developers.openai.com/codex/config-advanced)
 - Codex 公式ドキュメント "Configuration reference"（`config.toml` の Security & Sandbox セクション）(https://developers.openai.com/codex/config-reference)
