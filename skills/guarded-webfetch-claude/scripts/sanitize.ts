@@ -61,15 +61,18 @@ const LLM_MARKERS: MarkerPattern[] = [
   // developer は OpenAI/Codex 系の特権ロール。chat_template と role_declaration の両層で潰す
   {
     category: 'chat_template',
-    pattern: /<\/?(s|system|assistant|user|untrusted_content|developer)>/gi,
+    pattern: /<\/?(?<tag>s|system|assistant|user|untrusted_content|developer)>/gi,
   },
   { category: 'chat_template', pattern: /\[\/?INST\]/gi },
-  { category: 'role_declaration', pattern: /^\s*(human|assistant|system|developer)\s*:/gim },
+  { category: 'role_declaration', pattern: /^\s*(?<role>human|assistant|system|developer)\s*:/gim },
   {
     category: 'instruction_override',
-    pattern: /ignore\s+(all\s+)?(previous|prior|above)\s+instructions/gi,
+    pattern: /ignore\s+(?<all>all\s+)?(?<direction>previous|prior|above)\s+instructions/gi,
   },
-  { category: 'instruction_override', pattern: /disregard\s+(all\s+)?(previous|prior|above)/gi },
+  {
+    category: 'instruction_override',
+    pattern: /disregard\s+(?<all>all\s+)?(?<direction>previous|prior|above)/gi,
+  },
   { category: 'instruction_override', pattern: /new\s+instructions?\s*:/gi },
   { category: 'instruction_override', pattern: /you\s+are\s+now\s+/gi },
 ]

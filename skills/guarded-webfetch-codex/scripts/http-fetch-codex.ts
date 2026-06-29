@@ -226,12 +226,14 @@ const decodeEntities = (text: string): string =>
     .replace(/&(?:gt|#62);/gi, '>')
     .replace(/&(?:quot|#34);/gi, '"')
     .replace(/&(?:apos|#39);/gi, "'")
-    .replace(/&#x([0-9a-f]+);/gi, (_match, hex: string) =>
-      String.fromCodePoint(Number.parseInt(hex, 16))
-    )
-    .replace(/&#([0-9]+);/g, (_match, decimal: string) =>
-      String.fromCodePoint(Number.parseInt(decimal, 10))
-    )
+    .replace(/&#x(?<hex>[0-9a-f]+);/gi, (match) => {
+      const hex = match.slice(3, -1)
+      return String.fromCodePoint(Number.parseInt(hex, 16))
+    })
+    .replace(/&#(?<decimal>[0-9]+);/g, (match) => {
+      const decimal = match.slice(2, -1)
+      return String.fromCodePoint(Number.parseInt(decimal, 10))
+    })
 
 const collapseWhitespace = (text: string): string => text.replace(/\s+/g, ' ').trim()
 
@@ -292,7 +294,7 @@ export const extractJsonText = (json: string): string[] => {
 const extractJsonLdText = (html: string): string[] => {
   const scripts = [
     ...html.matchAll(
-      /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+      /<script\b[^>]*type=["']application\/ld\+json["'][^>]*>(?<content>[\s\S]*?)<\/script>/gi
     ),
   ].map((match) => decodeEntities(match[1] ?? ''))
   return scripts.flatMap((script) => extractJsonText(script))

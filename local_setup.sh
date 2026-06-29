@@ -36,6 +36,19 @@ gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
 gh skill install oubakiou/mdxg-redline md-review --agent claude-code --scope project
 
+for agent in claude-code codex; do
+  for skill in \
+    delegate-explore \
+    delegate-implement \
+    delegate-chore \
+    delegate-review \
+    delegate-imagegen \
+    delegate-x-research \
+  ; do
+    gh skill install oubakiou/delegate-skills "$skill" --agent "$agent" --scope project --force
+  done
+done
+
 # このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にインストールする
 # --from-local で現ワーキングツリーから直接インストールするため、ローカル編集が即反映される
 # .claude/skills/ は .gitignore 対象

@@ -1,3 +1,20 @@
+model = "gpt-5.5"
+
 [features]
-codex_hooks = true
+hooks = true
 fast_mode = false
+
+[tui]
+status_line = ["model-with-reasoning", "context-used", "weekly-limit"]
+status_line_use_colors = true
+
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+DISABLE_AUTOUPDATER = "1"
+DELEGATE_CHORE_MODEL = "gpt-5.4-mini"
+DELEGATE_EXPLORE_MODEL = "gpt-5.4-mini"
+DELEGATE_IMPLEMENT_MODEL = "gpt-5.4-mini"
+DELEGATE_REVIEW_MODEL = "gpt-5.5"
+DELEGATE_WORK_DIR = "/workspaces/skills/.temp/delegate/"
