@@ -33,8 +33,12 @@ fi
 
 echo "デフォルトskillをインストールします"
 gh auth login
+
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
+gh skill install anthropics/skills skill-creator --agent codex --scope project
+
 gh skill install oubakiou/mdxg-redline md-review --agent claude-code --scope project
+gh skill install oubakiou/mdxg-redline md-review --agent codex --scope project
 
 for agent in claude-code codex; do
   for skill in \
@@ -52,11 +56,14 @@ done
 # このリポジトリ自身の skill (canonical: skills/) を .claude/skills/ にインストールする
 # --from-local で現ワーキングツリーから直接インストールするため、ローカル編集が即反映される
 # .claude/skills/ は .gitignore 対象
-for skill in \
-  guarded-webfetch-codex \
-  guarded-websearch-codex \
-; do
-  gh skill install . "$skill" --from-local --agent claude-code --scope project --force
+for agent in claude-code codex; do
+  for skill in \
+    guarded-webfetch-codex \
+    guarded-websearch-codex \
+    dataviz-svg \
+  ; do
+    gh skill install oubakiou/skills "$skill" --agent "$agent" --scope project --force
+  done
 done
 
 # python3はskill-creator 同梱の Python スクリプト (eval-viewer 等) を実行するために必要
