@@ -47,9 +47,19 @@ spec を JSON ファイルとして保存する。保存先は出力 SVG と同�
 
 ### 3. SVG をレンダリングする
 
+Claude Code では:
+
 ```bash
 bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
 ```
+
+Codex では:
+
+```bash
+bash .agents/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
+```
+
+`allowed-tools` は Claude Code 向けの権限指定であり、Codex では本文の実行例に従ってレンダリングする。
 
 スキルに同梱された `vl2svg.mjs`（vega-lite + vega のバンドル）を使用する。追加インストールは不要。
 

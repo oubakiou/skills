@@ -94,7 +94,7 @@
 {
   "mark": "bar",
   "encoding": {
-    "x": { "field": "date", "type": "ordinal" },
+    "x": { "field": "date", "type": "temporal" },
     "y": { "field": "value", "type": "quantitative", "stack": "zero" },
     "color": { "field": "series", "type": "nominal" }
   }
@@ -102,6 +102,7 @@
 ```
 
 100% 積み上げにするには `"stack": "normalize"` を使う。
+月名や曜日のような順序付きカテゴリを `ordinal` で扱う場合は、`"sort": ["Jan", "Feb", ...]` のように明示的に並び順を指定する。
 
 ---
 
@@ -458,4 +459,5 @@ SVG にフォントは埋め込まれない。`"config": {"font": "sans-serif"}`
 - **凡例がチャート外にはみ出る**: `"padding": {"right": 120}` で右余白を確保
 - **`autosize` が効かない**: `facet` / `concat` では `autosize` が無視される。各サブビューの `width` / `height` を個別に設定する
 - **データ型の不一致**: 日付文字列は `"type": "temporal"` + `"timeUnit"` で明示的にパースする
+- **月名・曜日などの `ordinal` 軸が意図しない順序になる**: `"sort": ["Jan", "Feb", ...]` のように明示する。日付として扱える値なら `"type": "temporal"` を使う
 - **`stack` のデフォルト**: `bar` と `area` はデフォルトで積み上げ。単独表示なら `"stack": null` を明示する
