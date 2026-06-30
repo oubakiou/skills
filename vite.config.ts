@@ -1,5 +1,8 @@
+const generatedIgnorePatterns = ['dist/', 'skills/dataviz-svg/scripts/vl2svg.mjs']
+
 export default {
   fmt: {
+    ignorePatterns: generatedIgnorePatterns,
     semi: false,
     singleQuote: true,
     trailingComma: 'es5',
@@ -13,7 +16,7 @@ export default {
       suspicious: 'error',
     },
     // ビルド成果物はチェック対象外。`vp build` で都度上書きされるため。
-    ignorePatterns: ['dist/'],
+    ignorePatterns: generatedIgnorePatterns,
     options: { typeAware: true, typeCheck: true },
     rules: {
       'capitalized-comments': 'off',
@@ -29,6 +32,7 @@ export default {
     },
   },
   test: {
+    exclude: ['**/node_modules/**', '**/.git/**', '.temp/**'],
     // shared/: 共有実装 (sanitize / codex-jsonl) の正本はここでテストする
     // skills/*/scripts/pipe-sanitize*.ts: 各 skill 固有のパイプ処理 (canonical)
     // skills/*/scripts/http-fetch*.ts: direct HTTP fetcher (canonical)
@@ -42,6 +46,7 @@ export default {
       'skills/*/scripts/pipe-sanitize*.ts',
       'skills/*/scripts/merge-summary*.ts',
       'skills/*/scripts/http-fetch*.ts',
+      'skills/dataviz-svg/scripts/vl2svg.ts',
       '.codex/hooks/**/*.ts',
     ],
   },

@@ -55,6 +55,12 @@ bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh 'https:/
 | `guarded-websearch-claude` | Claude (`claude -p`)<br>既定モデル: `claude-sonnet-4-6`     | Claude の WebSearch ツールで検索しサニタイズ（[設計](skills/guarded-websearch-claude/references/design-plan.md)）<br>- 結果件数が常に 10 件で安定<br>- 実ページ URL とタイトルをそのまま返す（webfetch 系へ直接連携可）<br>- 実行時間は約 23–26 秒 |
 | `guarded-websearch-codex`  | Codex (`codex --search exec`)<br>既定モデル: `gpt-5.4-mini` | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）<br>- 実行時間が最速（約 12–16 秒）<br>- 実ページ URL とタイトルを返す<br>- 結果件数は 4–7 件と変動あり、公式 docs に偏る傾向                |
 
+### dataviz-svg — Vega-Lite による SVG チャート生成
+
+| スキル        | レンダリング層                   | 概要                                                                                                                                                                                                                                                                 |
+| ------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dataviz-svg` | Node.js + bundled Vega/Vega-Lite | Vega-Lite JSON spec から SVG チャートを生成し Markdown に埋め込む（[設計](skills/dataviz-svg/references/design-plan.md)）<br>- Mermaid では難しい散布図・ヒートマップ・ヒストグラム・箱ひげ図等に対応<br>- `vega` / `vega-lite` をバンドル済みで追加インストール不要 |
+
 ## 防御アーキテクチャ
 
 guarded 系スキルは 3 層の防御を組み合わせてプロンプトインジェクションを緩和する。
