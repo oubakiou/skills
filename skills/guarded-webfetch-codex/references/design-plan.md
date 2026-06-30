@@ -21,7 +21,7 @@
 
 指定された URL のコンテンツを Claude 親エージェントが扱う際、Codex 子プロセス内で Node.js 標準 `fetch()` による direct HTTP fetcher を実行し、プロンプトインジェクション攻撃の影響を抑制するためのガード層を提供する。
 
-設計の核は `guarded-webfetch-claude` と同じく **「untrusted content と特権的判断・ツール実行の論理的分離」** にある。Codex 子プロセス内の HTTP fetcher が URL の取得と素朴な本文抽出を担当し、子 Codex (LLM) が抽出テキストの要約を生成する。これらの出力を静的サニタイザに通した結果だけを親 Claude に渡すことで、生の Web コンテンツが main agent のコンテキストに直接入ることを避ける。
+設計の核は **「untrusted content と特権的判断・ツール実行の論理的分離」** にある。Codex 子プロセス内の HTTP fetcher が URL の取得と素朴な本文抽出を担当し、子 Codex (LLM) が抽出テキストの要約を生成する。これらの出力を静的サニタイザに通した結果だけを親 Claude に渡すことで、生の Web コンテンツが main agent のコンテキストに直接入ることを避ける。
 
 本設計では次の 3 層を採用する。
 
@@ -98,7 +98,7 @@ main Claude agent
 以下の場合は本スキルの対象外とする。
 
 - Web 検索クエリの実行が主目的である場合
-- Claude 子の `WebFetch` で十分な場合
+- 直接 WebFetch を使う運用で十分な場合
 
 ローカルファイルについては、保存場所ではなく出所で判断する。外部由来の HTML / Markdown / テキストをローカル保存してから読む場合も、本質的には同じ脅威モデルを持つ。
 
@@ -136,7 +136,7 @@ guarded-webfetch-codex/
     └── sanitize.ts
 ```
 
-- `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー（全 4 skill で同一実装）
+- `sanitize.ts` は `shared/sanitize/sanitize.ts` を正本とし、`scripts/sync-shared.ts` で配布された自動生成コピー（guarded 系 skill で同一実装）
 - `http-fetch-codex.ts` は direct HTTP fetcher。Codex 子プロセス内で Node.js 標準 `fetch()` により URL を取得し、生レスポンスボディ (`raw_html`) と抽出テキスト (`raw_text`) を含む `fetch-output-schema.json` 互換 JSON を stdout に出力する
 - `merge-summary-codex.ts` は要約マージャ。`sanitized.json` に子 Codex の `summary.txt` を追加する際、summary だけに `sanitize()` を呼び、既存 flags とマージして最終 JSON を出力する
 - `codex-jsonl.ts` は過去の `codex --search exec` 経路との互換・移行期間用ユーティリティ。新しい主経路では使用しない
@@ -210,11 +210,11 @@ bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<�
 
 `suspicious_patterns` チェックは最優先で行う。検出時は要約もスキップされるため `summary_missing` が同時に立つが、`raw_text` の読み取りはユーザー確認後に限定する。`summary_missing` が `true` かつ `suspicious_patterns` が空の場合のみ、`raw_text` を即座に読む。
 
-許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、エラー終了する。許容範囲は Claude 版 (`isAllowedOriginTransition`) と揃えており、HTTP fetcher が末尾 `/` 補完 / www. 補完 / HTTPS 昇格などの一般的な正規化を受けることを前提にしている。
+許容範囲外のオリジン遷移 (クロスオリジン / HTTPS→HTTP 降格 / ポート変更) は `pipe-sanitize-codex.ts` で fail-closed され、エラー終了する。許容範囲は HTTP fetcher が末尾 `/` 補完 / www. 補完 / HTTPS 昇格などの一般的な正規化を受けることを前提にしている。
 
 ## 7. サニタイザの処理層
 
-`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（Claude を含む全 4 skill で同一）。対象は `raw_html`（生 HTML）、`raw_text`（抽出テキスト）、`summary`（子 Codex の要約）の全フィールドであり、以下の 2 層に特化する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装。対象は `raw_html`（生 HTML）、`raw_text`（抽出テキスト）、`summary`（子 Codex の要約）の全フィールドであり、以下の 2 層に特化する。
 
 ### Unicode 層
 
@@ -367,7 +367,6 @@ direct HTTP fetcher の出力 JSON を sanitize 前に検証する。
 
 ## 12. 参考資料
 
-- [`guarded-webfetch-claude/references/design-plan.md`](../../guarded-webfetch-claude/references/design-plan.md)（本スキルの基盤となる claude 版 design-plan、同一リポジトリ内）
 - Codex CLI `codex exec --help`（CLI ヘルプ出力）
 - Codex CLI `codex --help`（CLI ヘルプ出力）
 - Node.js `fetch` / WHATWG Fetch API

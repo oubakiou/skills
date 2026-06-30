@@ -61,7 +61,7 @@ const stripWwwPrefix = (hostname: string): string => hostname.replace(/^www\./i,
  *
  * HTTP fetch では末尾 `/` の付与・www. 補完・HTTPS 昇格などの
  * 正規化が起きることがある。これらを fail-closed すると正常な fetch でも頻繁に弾かれるため、
- * Claude 版と同じ許容範囲を採用する。
+ * 同一ホスト相当かつ安全側のスキーム遷移だけを許容する。
  */
 const isAllowedOriginTransition = (requested: URL, fetched: URL): boolean => {
   const schemeOk =

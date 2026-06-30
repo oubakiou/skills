@@ -76,7 +76,7 @@ main Claude: 最終応答を生成
 以下の場合は対象外:
 
 - 明示的な URL の内容取得が主目的である場合
-- Claude 子の `WebSearch` で十分な場合
+- 直接 WebSearch を使う運用で十分な場合
 
 ## 5. 動作環境と制約
 
@@ -174,7 +174,7 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## 8. サニタイザの処理
 
-`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装（webfetch-codex を含む全 4 skill で同一）。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
+`sanitize.ts` は `shared/sanitize/sanitize.ts` の正本から自動生成された共通実装。検索結果では各 `title` と `snippet` に対して個別に `sanitize(url, url, text)` を適用する。
 
 検索結果固有の考慮事項:
 
@@ -257,7 +257,6 @@ NFKC 正規化は大文字小文字を畳まないため、"AI News" と "AI new
 
 ## 13. 参考資料
 
-- [`guarded-websearch-claude/references/design-plan.md`](../../guarded-websearch-claude/references/design-plan.md)（基盤となる claude 版 websearch design-plan、同一リポジトリ内）
 - [`guarded-webfetch-codex/references/design-plan.md`](../../guarded-webfetch-codex/references/design-plan.md)（codex 版の姉妹スキル webfetch design-plan、同一リポジトリ内）
 - Codex CLI `codex exec --help`（CLI ヘルプ出力）
 - Codex CLI `codex --help`（CLI ヘルプ出力）

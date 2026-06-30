@@ -53,9 +53,7 @@ done
 # --from-local で現ワーキングツリーから直接インストールするため、ローカル編集が即反映される
 # .claude/skills/ は .gitignore 対象
 for skill in \
-  guarded-webfetch-claude \
   guarded-webfetch-codex \
-  guarded-websearch-claude \
   guarded-websearch-codex \
 ; do
   gh skill install . "$skill" --from-local --agent claude-code --scope project --force

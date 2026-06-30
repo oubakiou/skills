@@ -26,9 +26,7 @@ const ENTRIES: SyncEntry[] = [
   {
     source: 'shared/sanitize/sanitize.ts',
     targets: [
-      'skills/guarded-webfetch-claude/scripts/sanitize.ts',
       'skills/guarded-webfetch-codex/scripts/sanitize.ts',
-      'skills/guarded-websearch-claude/scripts/sanitize.ts',
       'skills/guarded-websearch-codex/scripts/sanitize.ts',
     ],
   },

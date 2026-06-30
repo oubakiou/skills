@@ -5,7 +5,6 @@
 - Node.js >= 23.6
 - npm
 - 隔離子プロセスに応じた CLI:
-  - `guarded-*-claude` 系 → `claude` コマンド
   - `guarded-*-codex` 系 → `codex` コマンド
 
 ## セットアップ

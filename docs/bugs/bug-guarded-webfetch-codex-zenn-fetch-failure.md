@@ -4,7 +4,7 @@
 
 ## 1. 問題の構造
 
-`guarded-webfetch-codex` は、任意 URL の本文取得を `codex --search exec` に委譲し、子 Codex の最終 JSONL `agent_message` をサニタイズして親へ返す設計になっている。一方で、Codex 子は Claude 版の `WebFetch only` のような URL fetch 専用ツール固定を持たず、実際の取得可否は Codex の web/search 経路と子プロセス実行環境に依存している。
+`guarded-webfetch-codex` は、任意 URL の本文取得を `codex --search exec` に委譲し、子 Codex の最終 JSONL `agent_message` をサニタイズして親へ返す設計になっている。一方で、Codex 子は URL fetch 専用ツールへのハードな固定を持たず、実際の取得可否は Codex の web/search 経路と子プロセス実行環境に依存している。
 
 今回の URL では、サンドボックス外の `curl -I -L --max-time 20 'https://zenn.dev/oubakiou/articles/b9db61885cd7be'` は `HTTP/2 200` を返すため、対象記事の削除や Zenn 側の 404 が直接原因ではない。通常実行では Codex CLI 自体が read-only 初期化で落ち、権限を外した切り分け実行では Codex が Zenn 本文を見つけられず、設計どおり `pipe-sanitize-codex.ts` が fail-closed している。
 

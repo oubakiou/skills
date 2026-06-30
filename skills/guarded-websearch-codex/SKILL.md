@@ -13,7 +13,7 @@ allowed-tools: Bash(bash .claude/skills/guarded-websearch-codex/scripts/quaranti
 
 Claude 親エージェントが Codex 子プロセスで Web 検索を実行し、サニタイズ済み検索結果だけを親に渡すための防御スキル。
 
-これは緩和策であり、完全防御ではない。特に Codex 子の利用ツールは Claude 版ほど厳密には固定できないため、高リスクな検索結果には必ずユーザー確認を挟む。
+これは緩和策であり、完全防御ではない。特に Codex 子の利用ツールはハードな allowlist では厳密に固定できないため、高リスクな検索結果には必ずユーザー確認を挟む。
 
 ## guarded-webfetch-codex との使い分け
 

@@ -8,7 +8,6 @@ LLM エージェント（Claude Code / Codex）向けのカスタムスキル集
 
 - Node.js 23.6 以降 (パイプサニタイザ実行用)
 - 導入するスキルに応じて、以下の CLI コマンドが PATH 上で実行可能であること:
-  - `guarded-*-claude` を使うなら `claude` コマンド
   - `guarded-*-codex` を使うなら `codex` コマンドと `jq` コマンド
 
 ### 例 1: `gh skill install` ([GitHub CLI](https://cli.github.com/manual/gh_skill_install))
@@ -17,8 +16,8 @@ GitHub Release ベースの公式ツール。事前に `gh auth login` が必要
 
 ```bash
 # gh skill installでの例
-gh skill install oubakiou/skills guarded-webfetch-claude --agent claude-code --scope project
-gh skill install oubakiou/skills guarded-websearch-claude --agent claude-code --scope project
+gh skill install oubakiou/skills guarded-webfetch-codex --agent claude-code --scope project
+gh skill install oubakiou/skills guarded-websearch-codex --agent claude-code --scope project
 ```
 
 ### 例 2: `npx skills add` ([vercel-labs/skills](https://github.com/vercel-labs/skills#install-a-skill))
@@ -27,8 +26,8 @@ Node.js (`npx`) ベースのコミュニティツール。
 
 ```bash
 # npx skills addでの例
-npx skills add oubakiou/skills --skill guarded-webfetch-claude --agent claude-code --yes
-npx skills add oubakiou/skills --skill guarded-websearch-claude --agent claude-code --yes
+npx skills add oubakiou/skills --skill guarded-webfetch-codex --agent claude-code --yes
+npx skills add oubakiou/skills --skill guarded-websearch-codex --agent claude-code --yes
 ```
 
 ### 動作確認
@@ -36,24 +35,22 @@ npx skills add oubakiou/skills --skill guarded-websearch-claude --agent claude-c
 Claude Code を起動した状態で URL 取得や Web 検索を要求すると、フロントマターの `description` に基づき該当スキルが自動発動する。スキル単体の挙動を手動で確認したい場合は隔離スクリプトを直接実行できる。
 
 ```bash
-bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh 'https://example.com'
+bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh 'https://example.com'
 ```
 
 ## スキル一覧
 
 ### guarded-webfetch 系 — URL 指定でのコンテンツ取得防御
 
-| スキル                    | 隔離取得層                                              | 概要                                                                                                                                                                                                                                                                                                   |
-| ------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `guarded-webfetch-claude` | Claude (`claude -p`)<br>既定モデル: `claude-sonnet-4-6` | Claude の WebFetch ツールで URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-claude/references/design-plan.md)）<br>- 短い日本語要約を返す傾向（実測 raw 約 600 文字）<br>- 出力言語が日本語で安定<br>- コードブロックは含めず要点のみ、トークン節約向き                               |
-| `guarded-webfetch-codex`  | Codex (`codex exec`) + Node.js direct HTTP fetcher      | Codex 子プロセス内で Node.js 標準 `fetch()` により URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-codex/references/design-plan.md)）<br>- Codex の `web_search` には依存しない<br>- HTTP / HTML / JSON / XML を決定的なコードで処理<br>- SSRF・redirect・サイズ・content-type を制限 |
+| スキル                   | 隔離取得層                                         | 概要                                                                                                                                                                                                                                                                                                   |
+| ------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `guarded-webfetch-codex` | Codex (`codex exec`) + Node.js direct HTTP fetcher | Codex 子プロセス内で Node.js 標準 `fetch()` により URL コンテンツを取得しサニタイズ（[設計](skills/guarded-webfetch-codex/references/design-plan.md)）<br>- Codex の `web_search` には依存しない<br>- HTTP / HTML / JSON / XML を決定的なコードで処理<br>- SSRF・redirect・サイズ・content-type を制限 |
 
 ### guarded-websearch 系 — Web 検索結果の取得防御
 
-| スキル                     | 隔離子プロセス                                              | 概要                                                                                                                                                                                                                                               |
-| -------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `guarded-websearch-claude` | Claude (`claude -p`)<br>既定モデル: `claude-sonnet-4-6`     | Claude の WebSearch ツールで検索しサニタイズ（[設計](skills/guarded-websearch-claude/references/design-plan.md)）<br>- 結果件数が常に 10 件で安定<br>- 実ページ URL とタイトルをそのまま返す（webfetch 系へ直接連携可）<br>- 実行時間は約 23–26 秒 |
-| `guarded-websearch-codex`  | Codex (`codex --search exec`)<br>既定モデル: `gpt-5.4-mini` | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）<br>- 実行時間が最速（約 12–16 秒）<br>- 実ページ URL とタイトルを返す<br>- 結果件数は 4–7 件と変動あり、公式 docs に偏る傾向                |
+| スキル                    | 隔離子プロセス                                              | 概要                                                                                                                                                                                                                                |
+| ------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `guarded-websearch-codex` | Codex (`codex --search exec`)<br>既定モデル: `gpt-5.4-mini` | Codex の検索機能で検索しサニタイズ（[設計](skills/guarded-websearch-codex/references/design-plan.md)）<br>- 実行時間が最速（約 12–16 秒）<br>- 実ページ URL とタイトルを返す<br>- 結果件数は 4–7 件と変動あり、公式 docs に偏る傾向 |
 
 ### dataviz-svg — Vega-Lite による SVG チャート生成
 
@@ -71,7 +68,7 @@ main agent (Claude Code)
        │
        │  ┌─────────────────────────────────┐
        │  │ 隔離取得層                       │  ← 層 1: プロセス分離 + 取得制限
-       │  │ (claude -p / codex / Node fetch)│
+       │  │ (codex / Node fetch)           │
        │  └──────────┬──────────────────────┘
        │             │ stdout (JSON)
        │             ▼
@@ -95,43 +92,42 @@ main agent (Claude Code)
 
 上記 3 層を、各 guarded 系スキルがどの仕組みで実現しているかをまとめる。Codex 版 webfetch は direct HTTP fetcher、Codex 版 websearch は `codex --search exec` を使う。
 
-| 観点                     | guarded-\*-claude                                                                        | guarded-webfetch-codex                    | guarded-websearch-codex                  |
-| ------------------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------- | ---------------------------------------- |
-| 取得コマンド             | `claude -p`                                                                              | `codex exec` → `node http-fetch-codex.ts` | `codex --search exec`                    |
-| 出力形式                 | `--output-format json`                                                                   | fetcher JSON                              | `--json` JSONL                           |
-| 出力スキーマ強制         | あり (`--json-schema`)                                                                   | pipe 側のランタイム検証                   | あり (`--output-schema`)                 |
-| ツール固定               | `--allowedTools "WebFetch"` / `"WebSearch"`                                              | プロンプト + fetcher 内制限               | プロンプト + sandbox（CLI 直の固定なし） |
-| Sandbox                  | `sandbox.enabled: true` (macOS: Seatbelt / Linux・WSL2: bubblewrap)。Bash 経路のみが対象 | Codex 子プロセス + fetcher 内制限         | `--sandbox read-only` 固定               |
-| MCP 制限                 | `ENABLE_CLAUDEAI_MCP_SERVERS=false` 等                                                   | MCP 不使用                                | プロンプトと sandbox で抑制              |
-| Memory 自動読込抑止      | `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1`                                                       | `--ignore-user-config --ignore-rules`     | デフォルトで読まれない                   |
-| Max turns / タイムアウト | `--max-turns 3`                                                                          | HTTP timeout                              | デフォルトの試行回数                     |
-| ローカル fallback リスク | 無し                                                                                     | 無し                                      | 無し                                     |
-| 認証                     | Claude.ai OAuth（親継承）または `ANTHROPIC_API_KEY`                                      | ChatGPT ログイン または `OPENAI_API_KEY`  | ChatGPT ログイン または `OPENAI_API_KEY` |
-| ツール権限の強さ         | ハード                                                                                   | 準ハード                                  | 準ハード                                 |
-| 出力スキーマ強度         | ハード                                                                                   | ハード                                    | ハード                                   |
+| 観点                     | guarded-webfetch-codex                    | guarded-websearch-codex                  |
+| ------------------------ | ----------------------------------------- | ---------------------------------------- |
+| 取得コマンド             | `codex exec` → `node http-fetch-codex.ts` | `codex --search exec`                    |
+| 出力形式                 | fetcher JSON                              | `--json` JSONL                           |
+| 出力スキーマ強制         | pipe 側のランタイム検証                   | あり (`--output-schema`)                 |
+| ツール固定               | プロンプト + fetcher 内制限               | プロンプト + sandbox（CLI 直の固定なし） |
+| Sandbox                  | Codex 子プロセス + fetcher 内制限         | `--sandbox read-only` 固定               |
+| MCP 制限                 | MCP 不使用                                | プロンプトと sandbox で抑制              |
+| Memory 自動読込抑止      | `--ignore-user-config --ignore-rules`     | デフォルトで読まれない                   |
+| Max turns / タイムアウト | HTTP timeout                              | デフォルトの試行回数                     |
+| ローカル fallback リスク | 無し                                      | 無し                                     |
+| 認証                     | ChatGPT ログイン または `OPENAI_API_KEY`  | ChatGPT ログイン または `OPENAI_API_KEY` |
+| ツール権限の強さ         | 準ハード                                  | 準ハード                                 |
+| 出力スキーマ強度         | ハード                                    | ハード                                   |
 
 総評:
 
 - **URL fetch の安定性**: direct HTTP fetcher > Codex web/search
-- **ツール権限**: Claude > Codex webfetch / Codex websearch
-- **出力スキーマ**: Claude = direct HTTP fetcher = Codex search
+- **ツール権限**: Codex webfetch / Codex websearch はいずれも準ハード
+- **出力スキーマ**: direct HTTP fetcher = Codex search
 
 ## カスタマイズ
 
 各 guarded 系スキルが隔離子プロセスへ渡すモデルは、環境変数で上書きできる。未設定時はスクリプト内の既定値が使用される。
 
-| 環境変数       | 既定値              | 対象スキル                            |
-| -------------- | ------------------- | ------------------------------------- |
-| `CLAUDE_MODEL` | `claude-sonnet-4-6` | `guarded-{webfetch,websearch}-claude` |
-| `CODEX_MODEL`  | `gpt-5.4-mini`      | `guarded-{webfetch,websearch}-codex`  |
+| 環境変数      | 既定値         | 対象スキル                           |
+| ------------- | -------------- | ------------------------------------ |
+| `CODEX_MODEL` | `gpt-5.4-mini` | `guarded-{webfetch,websearch}-codex` |
 
 `guarded-webfetch-codex` の子 Codex sandbox は `CODEX_FETCH_SANDBOX` で上書きできる。未設定時は `danger-full-access` を使用する。HTTP 取得の SSRF / redirect / content-type / size 制限は `http-fetch-codex.ts` 側で強制する。
 
 例:
 
 ```bash
-CLAUDE_MODEL=claude-haiku-4-5-20251001 \
-  bash .claude/skills/guarded-webfetch-claude/scripts/quarantine-fetch.sh '<URL>'
+CODEX_MODEL=gpt-5.4-mini \
+  bash .claude/skills/guarded-webfetch-codex/scripts/quarantine-fetch-codex.sh '<URL>'
 ```
 
 ## 開発
@@ -139,7 +135,7 @@ CLAUDE_MODEL=claude-haiku-4-5-20251001 \
 ### 前提条件
 
 - Node.js 23.6 以降
-- 使用する子プロセスに応じた CLI (`claude`, `codex`) がインストール済みであること
+- 使用する子プロセスに応じた CLI (`codex`) がインストール済みであること
 
 ### devcontainer
 
@@ -164,7 +160,7 @@ source local_setup.sh
 vp test
 
 # 特定スキルのテスト
-vp test skills/guarded-webfetch-claude/scripts/pipe-sanitize.ts
+vp test skills/guarded-webfetch-codex/scripts/pipe-sanitize-codex.ts
 ```
 
 ### lint / フォーマット
@@ -197,7 +193,7 @@ vp check
 ```
 shared/                         # 共有実装の正本
   sanitize/
-    sanitize.ts                 # テキストサニタイズ (全 4 skill 共通)
+    sanitize.ts                 # テキストサニタイズ (guarded 系 skill 共通)
   codex-jsonl/
     codex-jsonl.ts              # Codex JSONL 抽出 (codex 系 2 skill 共通)
 
