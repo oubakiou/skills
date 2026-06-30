@@ -46,9 +46,53 @@ vitest の in-source testing を採用している。テストは各スクリプ
 
 `skills/*/scripts/sanitize.ts` と `codex-jsonl.ts` は `shared/` から自動生成されたコピーのため、テスト対象から除外している。
 
+## ディレクトリ構成
+
+編集対象は役割によって 2 つに分かれる:
+
+- **公開対象 (`skills/`)**: 各 skill の SKILL.md / references / 固有スクリプト (`pipe-sanitize-*.ts`, `quarantine-*.sh` 等) を編集する。`gh skill publish` でリリースされる canonical
+- **共有実装の編集対象 (`shared/`)**: 複数 skill で共有する実装の正本 (`sanitize.ts`, `codex-jsonl.ts`)。ロジック更新はここで行い、`npm run sync-shared` で各 skill にコピーを配布する
+
+**直接編集してはいけないファイル**: `skills/<skill-name>/scripts/sanitize.ts` と `skills/<skill-name>/scripts/codex-jsonl.ts` は `shared/` から `scripts/sync-shared.ts` で自動生成されたコピー。直接編集すると `.githooks/pre-commit` の `sync-shared:check` で検出されコミットがブロックされる。
+
+`.claude/skills/` は dogfooding (この repo を Claude Code で開いた際に自スキルを読み込ませる) のためのインストール先で、`local_setup.sh` が `gh skill install --from-local` で `skills/` から取り込む。`.gitignore` 対象。
+
+各 skill の `scripts/sanitize.ts` / `codex-jsonl.ts` は自動生成された実体コピーとして git 管理下に置かれるため、各 skill は self-contained で動作する（`gh skill install` 単独でインストール可能）。
+
+凡例: 注釈なしのファイルは通常の編集対象。`⛔` は編集禁止 (自動生成)、`📦` はビルド生成物。
+
+```
+shared/                         # 共有実装の正本
+  sanitize/
+    sanitize.ts                 # テキストサニタイズ (guarded 系 skill 共通)
+  codex-jsonl/
+    codex-jsonl.ts              # Codex JSONL 抽出 (codex 系 2 skill 共通)
+
+scripts/
+  sync-shared.ts                # shared/ → 各 skill scripts/ へのコピー / 検証ツール
+
+skills/                         # canonical (gh skill publish 対象)
+  <skill-name>/
+    SKILL.md                    # スキル定義 (フロントマター + 実行フロー)
+    references/
+      design-plan.md            # 設計計画・脅威モデル・割り切り
+      *.toml / *.json           # Policy / Schema 等の設定ファイル
+    scripts/
+      check-node-version.sh     # Node.js バージョン事前チェック
+      quarantine-*.sh           # 隔離プロセス起動のエントリポイント
+      http-fetch-*.ts           # direct HTTP fetcher (webfetch-codex)
+      pipe-sanitize-*.ts        # パイプ接続のサニタイザ (テスト内蔵)
+      sanitize.ts               # ⛔ shared/sanitize/sanitize.ts から自動生成
+      codex-jsonl.ts            # ⛔ (codex 系のみ) shared/codex-jsonl/codex-jsonl.ts から自動生成
+
+.claude/skills/                 # 📦 .gitignore 対象、local_setup.sh で生成
+  <skill-name>/...              # skills/ から gh skill install --from-local で取得
+  skill-creator/                # gh skill install で導入される外部 skill
+```
+
 ## shared/ 同期メカニズム
 
-共有実装（`sanitize.ts` / `codex-jsonl.ts`）の正本は `shared/` にあり、`npm run sync-shared` で各 skill の `scripts/` に実体コピーを配布する。ディレクトリ構成の詳細は [README.md](../../README.md) を参照。
+共有実装（`sanitize.ts` / `codex-jsonl.ts`）の正本は `shared/` にあり、`npm run sync-shared` で各 skill の `scripts/` に実体コピーを配布する。
 
 ロジックを変更する場合は `shared/` の正本を編集し `npm run sync-shared` を実行する。`skills/<skill-name>/scripts/sanitize.ts` と `codex-jsonl.ts` を直接編集すると pre-commit hook でコミットがブロックされる。
 
