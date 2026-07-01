@@ -8,7 +8,9 @@
   },
   "devDependencies": {
     "@anthropic-ai/claude-code": "^2.1.80",
+    "@expo-google-fonts/noto-sans-jp": "^0.4.3",
     "@openai/codex": "0.x",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@types/node": "^24.0.0",
     "md2idx": "^0.2.0",
     "mdxg-redline": "^0.1.3",

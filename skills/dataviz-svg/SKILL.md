@@ -2,7 +2,7 @@
 name: dataviz-svg
 license: MIT
 description: >
-  Vega-Lite を使ったデータ可視化チャートの SVG 生成・Markdown 埋め込みスキル。
+  Vega-Lite を使ったデータ可視化チャートの SVG/PNG 生成・Markdown 埋め込みスキル。
   Mermaid では表現できない統計チャート（散布図、ヒートマップ、ヒストグラム、箱ひげ図、面グラフ、複合チャート等）や、
   データ駆動の高度なグラフが必要な場面で使用する。
   ユーザーが「グラフを作って」「チャートを生成して」「データを可視化して」「Vega-Lite で」と言った場合、
@@ -13,8 +13,10 @@ allowed-tools: Bash(bash .claude/skills/dataviz-svg/scripts/render-svg.sh:*)
 
 # dataviz-svg
 
-Vega-Lite の JSON spec から SVG を生成し、Markdown ドキュメントに埋め込む。
-`vega-lite` と `vega` をバンドルした単一スクリプト (`vl2svg.mjs`) を同梱しており、追加インストール不要でブラウザなし・ヘッドレス環境でも動作する。
+Vega-Lite の JSON spec から SVG と PNG を生成し、Markdown ドキュメントに埋め込む。
+`vega-lite` / `vega` をバンドルしたスクリプト (`vl2svg.mjs`) と、PNG 変換用の `resvg.wasm` / Noto Sans JP フォントを同梱しており、追加インストール不要でブラウザなし・ヘッドレス環境でも動作する。
+
+本スキルの独自コードは MIT ライセンスで提供する。同梱する third-party runtime asset のライセンスは `THIRD_PARTY_NOTICES.md` を参照する。
 
 ## 前提条件
 
@@ -45,30 +47,33 @@ SVG 出力向けのポイント:
 
 spec を JSON ファイルとして保存する。保存先は出力 SVG と同じディレクトリか、ドキュメントの `assets/` 配下が適切。
 
-### 3. SVG をレンダリングする
+### 3. SVG と PNG をレンダリングする
 
 Claude Code では:
 
 ```bash
-bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
+bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg> [output.png]
 ```
 
 Codex では:
 
 ```bash
-bash .agents/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
+bash .agents/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg> [output.png]
 ```
+
+`output.png` を省略した場合は、`output.svg` と同じベース名の PNG を生成する（例: `chart.svg` → `chart.png`）。
 
 `allowed-tools` は Claude Code 向けの権限指定であり、Codex では本文の実行例に従ってレンダリングする。
 
-スキルに同梱された `vl2svg.mjs`（vega-lite + vega のバンドル）を使用する。追加インストールは不要。
+スキルに同梱された `vl2svg.mjs`（vega-lite + vega のバンドル）、`resvg.wasm`、Noto Sans JP フォントを使用する。追加インストールは不要。
 
 ### 4. Markdown に埋め込む
 
-生成された SVG をドキュメントに埋め込む:
+生成された SVG または PNG をドキュメントに埋め込む:
 
 ```markdown
 ![チャートタイトル](./assets/chart.svg)
+![チャートタイトル](./assets/chart.png)
 ```
 
 サイズ指定が必要な場合は HTML タグを使う:

@@ -30,7 +30,7 @@ Mermaid はフローチャート・シーケンス図・ER 図・ガントチャ
 - **複合ビュー**: レイヤリング（折れ線 + しきい値ルール）、ファセット（小さな多数グラフ）、連結（異なるチャートの並列表示）に対応していない
 - **スケール制御**: 対数スケール、時間軸スケール、カスタム色スケールなどが使えない
 
-Vega-Lite はこれらをすべてカバーする宣言的な可視化文法であり、JSON spec を書くだけで高品質なチャートを生成できる。`vl2svg` CLI により、ブラウザやランタイム環境に依存せず SVG を出力できるため、CI/CD パイプラインやヘッドレス環境でのドキュメント生成にも適している。
+Vega-Lite はこれらをすべてカバーする宣言的な可視化文法であり、JSON spec を書くだけで高品質なチャートを生成できる。Node.js 上で SVG を生成し、`resvg` の WASM 版で PNG も同時に出力するため、CI/CD パイプラインやヘッドレス環境でのドキュメント生成にも適している。
 
 ### アーキテクチャ概要
 
@@ -38,18 +38,19 @@ Vega-Lite はこれらをすべてカバーする宣言的な可視化文法で�
 main agent
   ├─ Vega-Lite JSON spec を作成 → <spec>.json に保存
   │
-  └─ Bash: render-svg.sh <spec>.json <output>.svg
+  └─ Bash: render-svg.sh <spec>.json <output>.svg [output.png]
        │
        │  ┌─────────────────────────────────┐
        │  │ render-svg.sh                    │
-       │  │  bundled vl2svg.mjs              │
-       │  │  <spec>.json → <output>.svg     │
+       │  │  bundled vl2svg.mjs + assets     │
+       │  │  <spec>.json → SVG + PNG         │
        │  └──────────┬──────────────────────┘
-       │             │ SVG ファイル
+       │             │ SVG/PNG ファイル
        ▼
-  main agent: SVG を Markdown に埋め込み
+  main agent: SVG/PNG を Markdown に埋め込み
        │
        └─ ![title](./assets/chart.svg)
+          ![title](./assets/chart.png)
 ```
 
 本スキルはセキュリティ防御層ではなく、ドキュメント生成ワークフローを支援するユーティリティである。Vega-Lite spec の `data.url` にローカルファイルや URL を指定した場合は、レンダリング時にそのデータソースを読み込む。guarded 系スキルのような未信頼 Web コンテンツ取得を主目的とするものではないため、隔離アーキテクチャは持たない。
@@ -86,12 +87,12 @@ main agent
 ## 3. 動作環境と制約
 
 - **実行環境は Node.js >= 18**: バンドル済みの `vl2svg.mjs` を `node` で実行するため。リポジトリの guarded 系スキルは Node.js 23.6+ を要求するが、本スキルは TypeScript の直接実行を行わないため 18 以上で動作する
-- **外部パッケージのバンドル同梱**: `vega`（6.2.0）と `vega-lite`（6.4.3）を Vite（`vp build`）で単一の ESM ファイル `scripts/vl2svg.mjs`（約 1.6MB）にバンドルし、スキルに同梱する。追加の `npm install` は不要。guarded 系スキルの「依存ゼロ」方針とは異なり、チャートレンダリングという性質上外部パッケージへの依存は不可避だが、バンドルにより配布時点で自己完結する
+- **外部パッケージのバンドル同梱**: `vega`（6.2.0）と `vega-lite`（6.4.3）を Vite（`vp build`）で単一の ESM ファイル `scripts/vl2svg.mjs` にバンドルし、PNG 変換用に `@resvg/resvg-wasm` の `resvg.wasm`、文字描画用に Noto Sans JP Regular TTF を同梱する。追加の `npm install` は不要。guarded 系スキルの「依存ゼロ」方針とは異なり、チャートレンダリングと画像変換という性質上外部パッケージへの依存は不可避だが、バンドルにより配布時点で自己完結する
 - **実行速度**: バンドルからの直接実行で約 0.3-0.5 秒。初回ダウンロードの遅延なし
-- **オフライン環境**: バンドルが同梱されているため、インストール後は完全にオフラインで動作する
+- **オフライン環境**: バンドル、WASM、フォントが同梱されているため、インストール後は完全にオフラインで動作する
 - **canvas 非同梱**: `vega` はテキスト測定のために `canvas` パッケージ（node-canvas）をオプショナル依存として持つが、バンドルには含めていない。テキストのバウンディングボックス計算が近似値になり、ラベルの位置が微妙にずれる場合がある。SVG の基本的なレンダリングには影響しない
 - **開発・再ビルド環境は Node.js >= 20**: `vega-lite` 6.x の package metadata が Node.js 20 以上を要求するため、`vl2svg.mjs` の再生成は Node.js 20 以上で行う
-- **ビルド方法**: ソース `scripts/vl2svg.ts` を変更した場合、`skills/dataviz-svg/` ディレクトリで `vp build -c vite.build.ts` を実行して `scripts/vl2svg.mjs` を再生成する。ビルドにはルート `package.json` の devDependencies にある `vega` / `vega-lite` が必要。`vite.build.ts` は `import.meta.vitest` を `undefined` に置換し、in-source test を配布 bundle から除外する
+- **ビルド方法**: ソース `scripts/vl2svg.ts` を変更した場合、`skills/dataviz-svg/` ディレクトリで `vp build -c vite.build.ts` を実行して `scripts/vl2svg.mjs`、`scripts/resvg.wasm`、フォント asset を再生成する。ビルドにはルート `package.json` の devDependencies にある `vega` / `vega-lite` / `@resvg/resvg-wasm` / `@expo-google-fonts/noto-sans-jp` が必要。`vite.build.ts` は `import.meta.vitest` を `undefined` に置換し、in-source test を配布 bundle から除外する
 
 ## 4. ディレクトリ構成
 
@@ -102,7 +103,10 @@ dataviz-svg/
 ├── scripts/
 │   ├── render-svg.sh                 # エントリポイント（node vl2svg.mjs のラッパー）
 │   ├── vl2svg.ts                     # バンドルソース（開発用、vp build の入力）
-│   └── vl2svg.mjs                    # 📦 vega + vega-lite バンドル（vp build で生成、約 1.6MB）
+│   ├── vl2svg.mjs                    # 📦 vega + vega-lite + resvg JS バンドル（vp build で生成）
+│   ├── resvg.wasm                    # 📦 PNG 変換用 WASM（vp build でコピー、約 2.5MB）
+│   ├── NotoSansJP_400Regular.ttf     # 📦 PNG 文字描画用フォント（約 5.5MB）
+│   └── NotoSansJP_LICENSE_OFL.txt    # 📦 フォントライセンス
 └── references/
     ├── design-plan.md                # このドキュメント
     └── vegalite-patterns.md          # チャートパターン集・SVG ベストプラクティス
@@ -136,10 +140,10 @@ spec は JSON ファイルとして保存する。配置先の規約:
 
 ファイル名はチャートの内容を反映させる（例: `sales-trend.vl.json`、`access-heatmap.vl.json`）。`.vl.json` 拡張子は Vega-Lite spec であることを明示するための慣例。
 
-### ステップ 3: SVG レンダリング
+### ステップ 3: SVG/PNG レンダリング
 
 ```bash
-bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
+bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg> [output.png]
 ```
 
 スクリプトの動作:
@@ -147,7 +151,8 @@ bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
 1. 引数を検証（spec ファイルの存在確認、出力ディレクトリの自動作成）
 2. スキル同梱の `scripts/vl2svg.mjs` を `node` で実行
 3. `vl2svg.mjs` が Vega-Lite spec を Vega spec にコンパイルし、Vega runtime で SVG を生成
-4. 正常終了時は `SVG generated: <output.svg>` を stdout に出力
+4. `resvg.wasm` と同梱フォントで SVG を PNG に変換
+5. 正常終了時は `SVG generated: <output.svg>` と `PNG generated: <output.png>` を stdout に出力
 
 ### ステップ 4: Markdown への埋め込み
 
@@ -176,7 +181,7 @@ bash .claude/skills/dataviz-svg/scripts/render-svg.sh <spec.json> <output.svg>
 
 ### vl2svg.mjs wrapper
 
-`vl2svg.mjs` は `vega-lite` と `vega` を単一ファイルにバンドルした自前 wrapper である。Vega-Lite の JSON spec を読み込み、`vega-lite` の `compile()` で Vega spec に変換した後、Node.js 上の Vega runtime で SVG にレンダリングする。
+`vl2svg.mjs` は `vega-lite` / `vega` / `@resvg/resvg-wasm` の JS 部分を単一ファイルにバンドルした自前 wrapper である。Vega-Lite の JSON spec を読み込み、`vega-lite` の `compile()` で Vega spec に変換した後、Node.js 上の Vega runtime で SVG にレンダリングする。生成した SVG は `resvg.wasm` に渡し、同梱フォントで文字を解決して PNG として同時出力する。
 
 ```
 Vega-Lite JSON spec
@@ -194,13 +199,14 @@ SVG 文字列
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 2 ]]; then
-  echo "Usage: render-svg.sh <spec.json> <output.svg>" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "Usage: render-svg.sh <spec.json> <output.svg> [output.png]" >&2
   exit 1
 fi
 
 SPEC_FILE="$1"
 OUTPUT_FILE="$2"
+PNG_OUTPUT_FILE="${3:-}"
 
 if [[ ! -f "$SPEC_FILE" ]]; then
   echo "Error: spec file not found: $SPEC_FILE" >&2
@@ -213,7 +219,7 @@ node "$SKILL_DIR/scripts/vl2svg.mjs" "$SPEC_FILE" "$OUTPUT_FILE"
 
 設計判断:
 
-- **バンドル同梱**: `vl2svg.mjs` は `vega` + `vega-lite` を Vite でバンドルした単一 ESM ファイル（約 1.6MB）。79MB の `node_modules` を 1/50 に圧縮しつつ、追加インストール不要で即時実行できる
+- **バンドル同梱**: `vl2svg.mjs` は `vega` + `vega-lite` + `@resvg/resvg-wasm` の JS 部分を Vite でバンドルした単一 ESM ファイル。`resvg.wasm` とフォントは別ファイルとして同梱し、追加インストール不要で即時実行できる
 - **出力ディレクトリの自動作成**: `vl2svg.mjs` 内で `mkdirSync(outDir, { recursive: true })` を実行。ユーザーが `assets/` を事前に作る手間を省く
 - **エラーハンドリング**: `set -euo pipefail` によりコマンド失敗時は即座に非ゼロ exit code で終了。main agent はエラー出力からユーザーに原因を伝える
 - **ベースディレクトリ**: `vl2svg.mjs` は spec ファイルのディレクトリを自動的にベースディレクトリとして使用する。相対・絶対・`file://` のローカルデータファイルは Node.js の `fs` で読み込み、HTTP(S) / data URL は Vega の loader に委譲する
@@ -279,12 +285,14 @@ SVG にフォントは埋め込まれない。レンダリング環境のシス�
 
 ## 9. 設計上の割り切り
 
-- **SVG のみ、PNG/PDF は非対応**: `vl2svg` による SVG 出力に特化する。PNG（`vl2png`）や PDF は追加の依存（`canvas` / `sharp` / `puppeteer` 等）が必要であり、スキルの複雑さが増す。SVG は Markdown での埋め込みに最も適しており、必要に応じてユーザーが外部ツールで変換できる
+- **SVG/PNG の同時出力、PDF は非対応**: SVG は Markdown での埋め込みと再編集に適し、PNG は SVG を正しくレンダリングしない環境やメール添付に適する。PDF 出力は追加依存と用途の広がりが大きいため対象外とする
 - **フォント埋め込みなし**: SVG にフォントを埋め込む機能は提供しない。`@font-face` の SVG 内記述や Base64 エンコードは可能だが、ファイルサイズが肥大化し可搬性も下がるため、システムフォントへのフォールバックを推奨する
+- **PNG 用フォント同梱**: WASM 版 resvg は実行環境の system font を利用できない場合があるため、PNG 変換時は Noto Sans JP Regular を明示的に読み込む
 - **インタラクティブ性なし**: SVG 出力は静的画像であり、Vega-Lite のインタラクティブ機能（selection、params、条件付きエンコーディング）は反映されない。ホバーツールチップ・ズーム・フィルタが主要件の場合は HTML embed を案内する
-- **canvas 非同梱**: バンドルに `node-canvas` を含めていないため、テキスト測定が近似値になる。大半のチャートでは問題にならないが、長い日本語ラベルの位置計算で微妙なずれが発生する可能性がある
+- **canvas 非同梱**: バンドルに `node-canvas` を含めていないため、Vega のテキスト測定が近似値になる。大半のチャートでは問題にならないが、長い日本語ラベルの位置計算で微妙なずれが発生する可能性がある
 - **バンドルの Vega-Lite バージョン固定**: バンドルに含まれる `vega-lite`（6.4.3）と `vega`（6.2.0）は `vp build` 時のバージョンで固定される。更新するにはソース `vl2svg.ts` の依存を更新して再ビルドが必要
-- **バンドルサイズ**: `vl2svg.mjs` は約 1.6MB。git 管理下に置くため、頻繁なバージョン更新はリポジトリサイズに影響する
+- **バンドルサイズ**: `vl2svg.mjs`、`resvg.wasm`、フォント asset は git 管理下に置くため、頻繁なバージョン更新はリポジトリサイズに影響する。WASM は platform 共通で、native binary を platform 別に同梱するよりサイズを抑えやすい
+- **third-party license notice**: 同梱 runtime asset は `THIRD_PARTY_NOTICES.md` で管理する。`@resvg/resvg-wasm` は MPL-2.0、Noto Sans JP フォントは OFL-1.1 として扱う
 - **バンドルは formatter / linter 対象外**: `vl2svg.mjs` は `vite.config.ts` の `ignorePatterns` で `vp check` の対象から外す。品質確認は `vl2svg.ts` の lint / type check、`vp build -c vite.build.ts` による再生成、レンダリング smoke test で行う
 - **大規模データの SVG サイズ**: データ点が多い（数千点以上の散布図等）場合、SVG のファイルサイズが数 MB になる。Markdown ドキュメントに大きな SVG を複数埋め込むとレンダリング性能が低下する。大規模データの場合はビニング・サンプリング等のデータ削減を推奨する
 - **LLM の Vega-Lite 知識に依存**: spec の作成は main agent の Vega-Lite に関する学習済み知識に依存する。`references/vegalite-patterns.md` で主要パターンを提供するが、マイナーな機能や最新の追加仕様はカバーしきれない
@@ -292,7 +300,7 @@ SVG にフォントは埋め込まれない。レンダリング環境のシス�
 
 ## 10. 将来的な拡張候補
 
-- **PNG 出力サポート**: `vl2png` の追加。`canvas` パッケージが必要だが、Markdown プレビューアが SVG を正しくレンダリングしない環境（一部の Markdown エディタ、メール等）向けに有用
+- **PNG 出力オプションの拡張**: 背景色やスケール倍率など、PNG 固有の出力パラメータを CLI 引数として追加する
 - **テーマシステム**: 組織のブランドカラーやドキュメントのデザインシステムに合わせたカスタムテーマ（`config` オブジェクト）を `references/` にバンドル。ユーザーがテーマ名を指定するだけで統一された見た目のチャートを生成できる
 - **spec バリデーション**: `render-svg.sh` 実行前に spec を Vega-Lite の JSON Schema でバリデーションし、わかりやすいエラーメッセージを提供する。現状は `vl2svg` のエラー出力をそのまま返しているが、初心者には不親切な場合がある
 - **複数チャートの一括生成**: ドキュメント内の全チャートを一括で再生成するバッチモード。spec ファイルの命名規約に基づき、対応する SVG を自動更新する
