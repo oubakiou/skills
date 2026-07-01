@@ -110,58 +110,61 @@ skills/                         # canonical (gh skill publish 対象)
 
 ## リリースプロセス
 
-`gh skill publish` で GitHub Releases と `gh skill` レジストリに **同一の `vX.Y.Z` git tag で**公開する。
+`npm run release-skill -- vX.Y.Z <notes.md>` で GitHub Releases と `gh skill` レジストリに **同一の `vX.Y.Z` git tag で**公開する。
+release notes ファイルは必須入力とし、publish 後に GitHub Release へ反映されたことまでスクリプトで検証する。
 
-| 公開先                | 配布物                                    | 公開コマンド                    |
-| --------------------- | ----------------------------------------- | ------------------------------- |
-| GitHub Releases       | リリースノート（What's New）              | `gh skill publish` が兼ねる     |
-| `gh skill` レジストリ | 各 guarded 系 skill（`gh skill install`） | `gh skill publish --tag vX.Y.Z` |
+| 公開先                | 配布物                         | 公開コマンド                                 |
+| --------------------- | ------------------------------ | -------------------------------------------- |
+| GitHub Releases       | リリースノート（What's New）   | `npm run release-skill -- vX.Y.Z <notes.md>` |
+| `gh skill` レジストリ | 各 skill（`gh skill install`） | `npm run release-skill -- vX.Y.Z <notes.md>` |
 
 ### 全体フロー
 
 ```mermaid
 flowchart TD
-    A["1. main ブランチで変更を commit + push"] --> B["2. gh skill publish --dry-run<br/>(検証)"]
-    B --> C["3. gh skill publish --tag vX.Y.Z<br/>(tag + GitHub Release + skill 公開)"]
-    C --> D["4. gh release edit で What's New notes に差し替え"]
+    A["1. main ブランチで変更を commit + push"] --> B["2. release notes を .temp/ 等に作成"]
+    B --> C["3. npm run release-skill -- vX.Y.Z <notes.md>"]
+    C --> D["4. 公開 URL と tag の確認"]
 ```
 
 #### 1. main に変更を commit + push
 
 リリース対象の変更がすべて main にマージされた状態にする。
 
-#### 2. dry-run で検証
+#### 2. release notes を作成
 
 ```bash
-gh skill publish --dry-run
+$EDITOR .temp/release-notes-vX.Y.Z.md
 ```
 
-`skills/*/SKILL.md` の `name` がディレクトリ名と一致するか、frontmatter の検証等をリリース前に行う。
+publish が付ける auto notes は使わない。利用者向けの What's New を先に作成する。
 
-#### 3. gh skill publish でタグ + Release + skill 公開
+#### 3. release-skill で検証 + 公開 + release notes 差し替え
 
 ```bash
-gh skill publish --tag v0.1.0
+npm run release-skill -- v0.1.0 .temp/release-notes-v0.1.0.md
 ```
 
-`--tag` を渡すと対話なしで publish する。タグは push 済みの main HEAD に切られるため、手順 1 の push を先に完了しておく。
+スクリプトは以下を順に実行し、失敗した時点で停止する:
 
-#### 4. リリースノートを差し替え
-
-```bash
-gh release edit v0.1.0 --notes-file <notes.md>
-```
-
-publish が付ける auto notes を What's New 形式に置き換える。
+1. release notes ファイルの存在・非空チェック
+2. 作業ツリーが clean であることを確認
+3. `main` と `origin/main` が一致することを確認
+4. リモート tag が未使用であることを確認
+5. `vp check`
+6. `vp test`
+7. `gh skill publish --dry-run`
+8. `gh skill publish --tag vX.Y.Z`
+9. `git ls-remote --tags origin vX.Y.Z` で tag が `HEAD` を指すことを確認
+10. `gh release edit vX.Y.Z --notes-file <notes.md>`
+11. `gh release view vX.Y.Z` で release notes が反映済みであることを確認
 
 ### リリースチェックリスト
 
 - [ ] リリース対象の変更がすべて main にマージ済み
-- [ ] `vp check` がエラーなし
-- [ ] `vp test` が全パス
-- [ ] `gh skill publish --dry-run` がエラーなし
-- [ ] `gh skill publish --tag vX.Y.Z` 後、tag が正しい commit を指す（`git ls-remote --tags origin vX.Y.Z`）
-- [ ] `gh release edit` で What's New ノートに差し替え済み
+- [ ] release notes を作成済み
+- [ ] `npm run release-skill -- vX.Y.Z <notes.md>` がエラーなし
+- [ ] 出力された GitHub Release URL を確認済み
 
 ## ローカル skill の再インストール
 

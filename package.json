@@ -3,6 +3,7 @@
   "author": "oubakiou",
   "type": "module",
   "scripts": {
+    "release-skill": "node scripts/release-skill.ts",
     "sync-shared": "node scripts/sync-shared.ts",
     "sync-shared:check": "node scripts/sync-shared.ts --check"
   },
