@@ -21,6 +21,9 @@ CLAUDE.local.md
 .agents/skills
 skills-lock.json
 
+# handover skill が書き出すセッション固有の引き継ぎスナップショット
+docs/handover.md
+
 # .tempディレクトリは維持するが中身は管理しない
 .temp/*
 !.temp/.gitkeep

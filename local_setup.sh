@@ -31,6 +31,12 @@ if [ ! -f CLAUDE.local.md ]; then
   echo "CLAUDE.local.md を作成しました"
 fi
 
+# Devin CLIはnpmからインストールできない
+curl -fsSL https://cli.devin.ai/install.sh | bash
+
+# Cursor CLIはnpmからインストールできない
+curl https://cursor.com/install -fsS | bash
+
 echo "デフォルトskillをインストールします"
 gh auth login
 
@@ -61,8 +67,10 @@ for agent in claude-code codex; do
     guarded-webfetch-codex \
     guarded-websearch-codex \
     dataviz-svg \
+    handover \
+    takeover \
   ; do
-    gh skill install oubakiou/skills "$skill" --agent "$agent" --scope project --force
+    gh skill install . "$skill" --from-local --agent "$agent" --scope project --force
   done
 done
 
