@@ -1,0 +1,44 @@
+{
+  "skill_name": "gdscript-quality",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "new-inventory-system",
+      "prompt": "Godot 4.4 で新規プロジェクトを作って、シンプルなインベントリシステムを実装してほしい。Item は id・表示名・最大スタック数を持ち、Inventory は容量制限つきで add / remove / アイテム所持数の取得ができること。tests/run_tests.gd に動作を確認するテストを書いて、godot --headless --path <project> -s res://tests/run_tests.gd が exit code 0 で通ることを確認して。",
+      "expected_output": "実行可能な Godot 4.4 プロジェクト。インベントリのロジックが実装され、自作テストが headless で全て通る。スキル適用時は全宣言が型付けされ、strict 警告ゼロで、dict-as-struct を使わず、マジックナンバーが定数化されている。",
+      "files": [],
+      "assertions": [
+        "Agent-written tests pass headless: `godot --headless --path project -s res://tests/run_tests.gd` exits 0",
+        "Strict warning gate clean: check.sh reports 0 script errors (untyped/unsafe warnings escalated to errors)",
+        "Item/inventory data is modeled with classes (class_name or inner class), not dict-as-struct with string keys",
+        "Tuning values (capacity, stack sizes) are named typed constants or @export vars, not inline magic numbers"
+      ]
+    },
+    {
+      "id": 1,
+      "eval_name": "refactor-legacy-wave-manager",
+      "prompt": "この Godot プロジェクトの scripts/wave_manager.gd、動いてはいるんだけど昔書き殴ったやつでかなり雑。挙動は変えずに品質を上げる方向でリファクタしてほしい。tests/run_tests.gd が通る状態は維持して（godot --headless --path . -s res://tests/run_tests.gd で確認できる）。",
+      "expected_output": "挙動不変（既存テスト全通過）のまま wave_manager.gd の品質が上がる。スキル適用時は untyped 宣言と dict-as-struct が排除され、マジックナンバーが定数化・enum 化され、strict 警告ゼロになる。",
+      "files": ["evals/fixtures/refactor-legacy"],
+      "assertions": [
+        "Behavior preserved: original fixture tests pass headless (`godot --headless --path project -s res://tests/run_tests.gd` exits 0)",
+        "Strict warning gate clean: check.sh reports 0 script errors (fixture started at 18)",
+        "Enemy/wave records are no longer untyped dict-as-struct (typed classes or typed dictionaries used)",
+        "Magic numbers (enemy hp/rewards, wave sizing, starting gold/lives) extracted to named typed constants or enums"
+      ]
+    },
+    {
+      "id": 2,
+      "eval_name": "add-health-system-feature",
+      "prompt": "このプロジェクトにプレイヤー体力システムを追加してほしい。要件: ダメージと回復の処理を持つこと、HP が変化したら HpLabel の表示を「HP: 現在値/最大値」形式で更新すること、HP が 0 になったらシグナルで通知して Main 側でラベルを GAME OVER 表示に切り替えること。ヘッドレスでの動作確認までやって。",
+      "expected_output": "体力システムが追加され、プロジェクトが headless で起動する。スキル適用時はシグナルとコールバックのパラメータまで型付けされ、signals up / calls down の構造になり、strict 警告ゼロになる。",
+      "files": ["evals/fixtures/add-health-feature"],
+      "assertions": [
+        "Project boots headless: `godot --headless --path project --quit-after 5` exits 0 with no script errors",
+        "Strict warning gate clean: check.sh reports 0 script errors",
+        "Death is communicated via a declared signal that Main connects to (signals up, calls down - no polling)",
+        "Signal parameters and connected callbacks are statically typed"
+      ]
+    }
+  ]
+}

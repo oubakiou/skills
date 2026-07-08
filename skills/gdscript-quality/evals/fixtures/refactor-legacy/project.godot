@@ -1,0 +1,8 @@
+; Engine configuration file.
+
+config_version=5
+
+[application]
+
+config/name="Wave Defense"
+config/features=PackedStringArray("4.4")

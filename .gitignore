@@ -24,6 +24,9 @@ skills-lock.json
 # handover skill が書き出すセッション固有の引き継ぎスナップショット
 docs/handover.md
 
+# Godot が生成するローカルキャッシュ (eval fixtures を Godot で開くと生成される)
+.godot/
+
 # .tempディレクトリは維持するが中身は管理しない
 .temp/*
 !.temp/.gitkeep
