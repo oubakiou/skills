@@ -1,5 +1,6 @@
 ---
 name: gdscript-quality
+license: MIT
 description: >-
   Write production-quality, statically typed GDScript for Godot 4.x. Use this
   skill whenever you create, edit, refactor, or review .gd files or any Godot
