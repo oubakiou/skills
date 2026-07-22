@@ -56,6 +56,12 @@ npx skills add oubakiou/skills --skill guarded-websearch-codex --agent claude-co
 | ------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `dataviz-svg` | Node.js + bundled Vega/Vega-Lite + resvg WASM | Vega-Lite JSON spec から SVG/PNG チャートを生成し Markdown に埋め込む（[設計](skills/dataviz-svg/references/design-plan.md)）<br>- Mermaid では難しい散布図・ヒートマップ・ヒストグラム・箱ひげ図等に対応<br>- `vega` / `vega-lite` / `resvg.wasm` / Noto Sans JP を同梱済みで追加インストール不要 |
 
+### imgedit-sharp — sharp (WASM) による画像加工・編集
+
+| スキル          | 画像処理層                               | 概要                                                                                                                                                                                                                                                                              |
+| --------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `imgedit-sharp` | Node.js + bundled sharp (libvips wasm32) | JSON spec で宣言した操作パイプラインで既存画像を加工（[設計](skills/imgedit-sharp/references/design-plan.md)）<br>- resize / crop / rotate / 合成 / 色調補正 / PNG・JPEG・WebP・AVIF 変換に対応<br>- sharp の WebAssembly ビルドを同梱済みで追加インストール不要・platform 非依存 |
+
 ### gdscript-quality — Godot GDScript の品質ガイド
 
 | スキル             | 対象                                             | 概要                                                                                                                                                                                                                      |
@@ -94,4 +100,4 @@ CODEX_MODEL=gpt-5.4-mini \
 
 [MIT](LICENSE)
 
-各スキルに同梱される third-party runtime asset はそれぞれのライセンスに従う。`dataviz-svg` の同梱 asset は [THIRD_PARTY_NOTICES.md](skills/dataviz-svg/THIRD_PARTY_NOTICES.md) を参照。
+各スキルに同梱される third-party runtime asset はそれぞれのライセンスに従う。`dataviz-svg` / `imgedit-sharp` の同梱 asset はそれぞれの [THIRD_PARTY_NOTICES.md](skills/dataviz-svg/THIRD_PARTY_NOTICES.md)（[imgedit-sharp](skills/imgedit-sharp/THIRD_PARTY_NOTICES.md)）を参照。

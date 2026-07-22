@@ -1,4 +1,8 @@
-const generatedIgnorePatterns = ['dist/', 'skills/dataviz-svg/scripts/vl2svg.mjs']
+const generatedIgnorePatterns = [
+  'dist/',
+  'skills/dataviz-svg/scripts/vl2svg.mjs',
+  'skills/imgedit-sharp/scripts/vendor/',
+]
 
 export default {
   fmt: {
@@ -47,6 +51,7 @@ export default {
       'skills/*/scripts/merge-summary*.ts',
       'skills/*/scripts/http-fetch*.ts',
       'skills/dataviz-svg/scripts/vl2svg.ts',
+      'skills/imgedit-sharp/scripts/edit-image.ts',
       '.codex/hooks/**/*.ts',
     ],
   },

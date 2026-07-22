@@ -1,4 +1,6 @@
 node_modules/
+# imgedit-sharp は sharp の wasm32 ビルドを vendored node_modules として同梱する
+!skills/imgedit-sharp/scripts/vendor/node_modules/
 .DS_Store
 *.log
 .vite/

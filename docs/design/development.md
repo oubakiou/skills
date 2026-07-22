@@ -84,6 +84,7 @@ skills/                         # canonical (gh skill publish 対象)
       pipe-sanitize-*.ts        # パイプ接続のサニタイザ (テスト内蔵)
       sanitize.ts               # ⛔ shared/sanitize/sanitize.ts から自動生成
       codex-jsonl.ts            # ⛔ (codex 系のみ) shared/codex-jsonl/codex-jsonl.ts から自動生成
+      vendor/node_modules/      # ⛔ (imgedit-sharp のみ) update-vendor.sh で取り込む vendored 依存
 
 .claude/skills/                 # 📦 .gitignore 対象、local_setup.sh で生成
   <skill-name>/...              # skills/ から gh skill install --from-local で取得

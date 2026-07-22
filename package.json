@@ -16,6 +16,7 @@
     "md2idx": "^0.2.0",
     "mdxg-redline": "^0.1.3",
     "oxlint-tsgolint": "0.x",
+    "sharp": "^0.35.3",
     "typescript": "^6.0.2",
     "typescript-language-server": "^5.1.3",
     "vega": "^6.2.0",
