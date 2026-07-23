@@ -2,13 +2,15 @@
 name: imgedit-sharp
 license: MIT
 description: >
-  sharp (libvips の WebAssembly ビルド) を使った画像加工・編集スキル。
-  既存の画像ファイルに対する resize、crop（切り抜き）、rotate、合成、色調補正、
-  フォーマット変換（PNG / JPEG / WebP / AVIF / GIF / TIFF）、圧縮・軽量化が必要な場面で使用する。
-  ユーザーが「画像をリサイズして」「サムネイルを作って」「WebP に変換して」「画像を圧縮して」
-  「スクリーンショットを切り抜いて」「画像に透かし/ロゴを合成して」と言った場合に発動する。
-  画像の新規生成（イラスト・写真風ビジュアルの生成）は対象外で、delegate-imagegen を使うこと。
-  SVG のラスタライズを伴うチャート生成は dataviz-svg を使うこと。
+  既存の画像ファイル（写真・スクリーンショット・バナー・アイコン等）を編集・変換する作業全般で使用する。
+  対象操作: リサイズ／サムネイル化（幅や px 指定、「縮小」「小さくする」も含む）、切り抜き（crop）、
+  回転・反転、フォーマット変換（PNG/JPEG/WebP/AVIF/GIF/TIFF 間、例: tiff→png、png→jpg）、
+  圧縮・軽量化（ファイルサイズを落とす、重い画像を小さくする）、ロゴ/透かしの合成、色調・明るさ調整、
+  そしてスクリーンショットへの注釈（赤枠・矢印・ハイライトで特定領域を囲む、バグ報告用画像の作成）。
+  ユーザーが具体的な画像ファイルパスや「この画像」「このスクリーンショット」を指しつつ、上記のような変更を求めたら
+  （日本語・英語問わず、"resize" "crop" "rotate" "compress" "shrink" "convert to webp/png/jpg" のような表現でも）発動する。
+  画像の新規生成（イラスト・写真風ビジュアルをゼロから作る）は対象外で delegate-imagegen を使う。
+  チャート/グラフを SVG から新規生成してラスタライズする場合は dataviz-svg を使う。
 allowed-tools: Bash(bash .claude/skills/imgedit-sharp/scripts/edit-image.sh:*)
 ---
 
@@ -140,6 +142,28 @@ PNG スクリーンショットの軽量化（AVIF 化）:
   "ops": [{ "type": "format", "format": "avif", "quality": 60 }]
 }
 ```
+
+特定領域を赤枠で囲んで強調（スクリーンショット注釈）:
+
+枠線だけの SVG（`fill="none"`）を作り、`composite` で座標指定して重ねる。囲みたい領域の座標が不明な場合は先に `--info` で画像寸法を確認する。
+
+```xml
+<!-- red-box.svg: 約 200x200 の領域を stroke-width 4 で囲む例 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="208" height="208">
+  <rect x="2" y="2" width="204" height="204" fill="none" stroke="red" stroke-width="4" rx="6"/>
+</svg>
+```
+
+```json
+{
+  "input": "screenshot.png",
+  "output": "annotated.png",
+  "ops": [{ "type": "composite", "input": "red-box.svg", "left": 96, "top": 46 }]
+}
+```
+
+- SVG の `stroke` は辺の中心線に描かれるため、キャンバスを `stroke-width` ぶん大きめに取り、`x`/`y` を `stroke-width / 2` オフセットするとはみ出さない
+- 同じ要領で円囲み（`<circle>`）・矢印（`<line>` / `<path>`）・注釈テキスト（`<text>`）も合成できる。複数箇所の注釈は、入力画像と同寸の SVG 1 枚に絶対座標で描いて `left: 0, top: 0` で重ねる方が spec がシンプルになる
 
 ## 制約
 
