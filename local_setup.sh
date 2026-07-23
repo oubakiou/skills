@@ -67,6 +67,7 @@ for agent in claude-code codex; do
     guarded-webfetch-codex \
     guarded-websearch-codex \
     dataviz-svg \
+    imgedit-sharp \
     handover \
     takeover \
   ; do
