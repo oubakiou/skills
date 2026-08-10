@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Codex の PostToolUse フックで編集対象ファイルに `vp check --fix` を実行する。
+ * Codex の PostToolUse フックで編集対象ファイルに共通 wrapper のファイル単位チェックを実行する。
  * 失敗時は処理を止めず、追加コンテキストとして Codex にフィードバックする。
  */
 
@@ -28,12 +28,12 @@ const messageFromError = (error: unknown): string => {
   return String(error)
 }
 
-/** `vp check --fix` の失敗内容を PostToolUse の additionalContext として返す */
+/** チェックの失敗内容を PostToolUse の additionalContext として返す */
 const emitAdditionalContext = (message: string): void => {
   process.stdout.write(
     JSON.stringify({
       hookSpecificOutput: {
-        additionalContext: `vp check --fix failed:\n${message}`,
+        additionalContext: `check-file failed:\n${message}`,
         hookEventName: 'PostToolUse',
       },
     })
@@ -124,7 +124,7 @@ export const existingFiles = (cwd: string, files: string[]): string[] => {
 
 /** ファイル単位チェック失敗時に Codex へ返すメッセージを組み立てる */
 export const formatFailure = (file: string, output: string): string => {
-  const lines = [`vp check --fix failed for ${file}.`]
+  const lines = [`check-file.sh failed for ${file}.`]
 
   if (output.length > 0) {
     lines.push(output)
@@ -133,12 +133,13 @@ export const formatFailure = (file: string, output: string): string => {
   return lines.join('\n')
 }
 
-/** 指定ファイルに `vp check --fix` を実行し、失敗時のみ説明文を返す */
+/** 指定ファイルに共通 wrapper を実行し、失敗時のみ説明文を返す */
 const runCheck = (cwd: string, file: string): string | null => {
-  const result = spawnSync('vp', ['check', '--fix', file], { cwd, encoding: 'utf8' })
+  const script = path.resolve(cwd, '.agents/scripts/check-file.sh')
+  const result = spawnSync('bash', [script, file], { cwd, encoding: 'utf8' })
 
   if (result.error) {
-    return `vp check --fix could not be started for ${file}: ${result.error.message}`
+    return `check-file.sh could not be started for ${file}: ${result.error.message}`
   }
 
   if (result.status !== 0) {
@@ -183,7 +184,7 @@ const main = (): void => {
 
 /**
  * MARK: In-Source Testing
- * @example vp test .codex/hooks/run-vp-check-fix.ts
+ * @example vp test .codex/hooks/run-check-file.ts
  */
 
 if (import.meta.vitest) {
@@ -257,14 +258,14 @@ if (import.meta.vitest) {
   })
 
   describe('formatFailure', () => {
-    it('vp の出力がある場合は失敗メッセージに含める', () => {
+    it('wrapper の出力がある場合は失敗メッセージに含める', () => {
       expect(formatFailure('src/current.ts', 'lint error')).toBe(
-        'vp check --fix failed for src/current.ts.\nlint error'
+        'check-file.sh failed for src/current.ts.\nlint error'
       )
     })
 
-    it('vp の出力が空の場合はファイル名だけを含める', () => {
-      expect(formatFailure('src/current.ts', '')).toBe('vp check --fix failed for src/current.ts.')
+    it('wrapper の出力が空の場合はファイル名だけを含める', () => {
+      expect(formatFailure('src/current.ts', '')).toBe('check-file.sh failed for src/current.ts.')
     })
   })
 } else {

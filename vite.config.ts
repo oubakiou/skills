@@ -54,5 +54,8 @@ export default {
       'skills/imgedit-sharp/scripts/edit-image.ts',
       '.codex/hooks/**/*.ts',
     ],
+    // scripts/ の契約テストは 1 ケースごとに bash / fake CLI の子プロセスを起動する。
+    // ホストの負荷次第でこの spawn が数秒遅延するため、vitest 既定の 5s では足りない
+    testTimeout: 30_000,
   },
 }

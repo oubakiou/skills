@@ -1,6 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# 満杯のコンテナディスクでは後続の npm ci 自体が書き込めなくなるため、
+# 依存インストールより前に回収を試みる。掃除の失敗は setup を止めない
+cleanup_status=0
+bash scripts/clean-devcontainer-disk.sh --threshold 90 || cleanup_status=$?
+if [ "$cleanup_status" -ne 0 ]; then
+  printf 'warning: devcontainer disk cleanup failed (exit %s); continuing startup\n' "$cleanup_status" >&2
+fi
+
 alias npx='npx --no-install'
 
 # 初回は package-lock.json が無いので npm install、それ以降は npm ci でロック厳守
@@ -43,8 +51,8 @@ gh auth login
 gh skill install anthropics/skills skill-creator --agent claude-code --scope project
 gh skill install anthropics/skills skill-creator --agent codex --scope project
 
-gh skill install oubakiou/mdxg-redline md-review --agent claude-code --scope project
-gh skill install oubakiou/mdxg-redline md-review --agent codex --scope project
+gh skill install oubakiou/mdxg-redline md-review --agent claude-code --scope project --force
+gh skill install oubakiou/mdxg-redline md-review --agent codex --scope project --force
 
 for agent in claude-code codex; do
   for skill in \

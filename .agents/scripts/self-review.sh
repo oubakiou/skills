@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+
+git diff --check
+npm run sync-shared:check
+npm run check
+npm run test
