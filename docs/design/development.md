@@ -55,7 +55,7 @@ VS Code server / npm / agent のキャッシュはコンテナディスク上で
 
 使用中リソースは削除しない。process listing が取得できない場合や、共有 `/vscode` volume 上のように他コンテナの liveness を証明できない場合は、category ごと skip して理由を報告する。`/vscode/vscode-server/bin` の世代は手動確認候補として表示するだけで自動削除しない。
 
-cursor-agent の世代（`local_setup.sh` が Cursor CLI をインストールするため蓄積する）は、最大日付の全世代と `~/.local/bin/agent` symlink が指す世代を retained set として固定し、それ以外だけを候補にする。同一日付の複数世代は git hash 順と release 順が一致しないため曖昧として全保持する。削除中は各削除の直前に retained set の存在・type・identity を再確認し、変化していれば残り候補を skip する。
+cursor-agent の世代（Cursor CLI は標準セットアップから外したが、手動で導入した環境や過去のセットアップで導入済みの環境では蓄積する）は、最大日付の全世代と `~/.local/bin/agent` symlink が指す世代を retained set として固定し、それ以外だけを候補にする。同一日付の複数世代は git hash 順と release 順が一致しないため曖昧として全保持する。削除中は各削除の直前に retained set の存在・type・identity を再確認し、変化していれば残り候補を skip する。
 
 例外は npm の `_cacache` で、ここは process 状態を見ずに `npm cache clean --force`（失敗時は canonical path 検証済みの直接削除）で回収する。content-addressed cache で、削除しても次回取得で復元されるため。
 
@@ -336,7 +336,7 @@ git diff v0.1.0..vX.Y.Z -- .agents/ .claude/ .codex/ .githooks/ .github/ docs/ s
 
 - プロジェクト固有の検証は `.agents/scripts/*` に置き、`.claude/` / `.codex/` はテンプレートのまま差し替えられる状態を保つ
 - テンプレートは npm package 前提のため、`build` / `clean` / `pack:check` と `tsconfig.build.json` 系の変更は取り込まない。このリポジトリは `dist/` を持たず `gh skill publish` で配布する
-- `scripts/clean-devcontainer-disk.sh` は cursor-agent category を足した拡張版を持つ。テンプレート側の更新を取り込む際は `in_list` / `retained_set_intact` / `clean_cursor_versions` と `revalidate_entry` の retained 引数を維持する（`local_setup.sh` が Cursor CLI をインストールするため、世代の蓄積が実際に起きる）
+- `scripts/clean-devcontainer-disk.sh` は cursor-agent category を足した拡張版を持つ。テンプレート側の更新を取り込む際は `in_list` / `retained_set_intact` / `clean_cursor_versions` と `revalidate_entry` の retained 引数を維持する（Cursor CLI は `local_setup.sh` から外したが、導入済みの既存環境では世代の蓄積が続く）
 - CI はテンプレートの build / pack step を持たず、代わりに `sync-shared:check` を持つ
 - 取り込み後は `.template.json` の version を更新する
 

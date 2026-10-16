@@ -39,12 +39,6 @@ if [ ! -f CLAUDE.local.md ]; then
   echo "CLAUDE.local.md を作成しました"
 fi
 
-# Devin CLIはnpmからインストールできない
-curl -fsSL https://cli.devin.ai/install.sh | bash
-
-# Cursor CLIはnpmからインストールできない
-curl https://cursor.com/install -fsS | bash
-
 echo "デフォルトskillをインストールします"
 gh auth login
 
