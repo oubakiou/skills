@@ -27,6 +27,8 @@ export default {
       'no-array-reduce': 'off',
       'no-magic-numbers': 'off',
       'number-literal-case': 'off',
+      // 1 宣言 1 文の方が diff と blame の粒度が細かく保てるため、宣言の結合を強制しない。
+      'one-var': 'off',
       'oxc/no-async-await': 'off',
       'oxc/no-rest-spread-properties': 'off',
       // import の並びは fmt (oxfmt sortImports) が所有する。lint の sort-imports は
