@@ -59,6 +59,7 @@ bash .claude/skills/imgedit-sharp/scripts/edit-image.sh --info <image>
 
 - `input` / `output` のパスは **実行時の cwd 基準**で解決される（絶対パスも可）
 - `ops` は先頭から順に適用される
+- spec の未知のキー（例: `ops` の typo）や op の未知のフィールドは spec エラー（exit 2）になる。エラーメッセージに許可されるキーの一覧が含まれる
 - `format` op を省略した場合、出力フォーマットは `output` の拡張子から自動判定される
 - 出力ディレクトリは自動作成される
 
@@ -93,7 +94,7 @@ bash .claude/skills/imgedit-sharp/scripts/edit-image.sh --info <output>
 
 | op                 | 主なパラメータ                                                                                                    | 説明                                                         |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `resize`           | `width`, `height`, `fit` (cover/contain/fill/inside/outside), `background`, `withoutEnlargement`                  | リサイズ。片方だけ指定でアスペクト比維持                     |
+| `resize`           | `width`, `height`, `fit` (cover/contain/fill/inside/outside), `position`, `background`, `withoutEnlargement`      | リサイズ。片方だけ指定でアスペクト比維持                     |
 | `crop` / `extract` | `left`, `top`, `width`, `height`（すべて必須）                                                                    | 矩形の切り抜き                                               |
 | `rotate`           | `angle`, `background`                                                                                             | 回転。90 の倍数以外は `background` で余白色を指定            |
 | `flip` / `flop`    | -                                                                                                                 | 上下反転 / 左右反転                                          |
@@ -108,6 +109,8 @@ bash .claude/skills/imgedit-sharp/scripts/edit-image.sh --info <output>
 | `modulate`         | `brightness`, `saturation`, `hue`, `lightness`                                                                    | 明度・彩度・色相の調整（1.0 が等倍）                         |
 | `composite`        | `input`（必須）, `gravity` または `left` + `top`, `blend`                                                         | 画像の合成（透かし・ロゴ等）。`input` は画像パス（SVG も可） |
 | `format`           | `format`（必須: jpeg/png/webp/avif/gif/tiff）, `quality`, `lossless`, `compressionLevel`, `effort`, `progressive` | 出力フォーマットとエンコードオプションの明示指定             |
+
+`resize` / `format` は表の項目に加え、sharp の `resize()` / 各フォーマット出力のオプション（`kernel`, `palette`, `chromaSubsampling` 等）もそのまま指定できる。
 
 色（`background` / `color`）は CSS 色文字列（`"#rrggbb"`, `"rgba(0,0,0,0.5)"`, `"white"` 等）で指定する。
 

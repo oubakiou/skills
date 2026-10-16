@@ -132,7 +132,7 @@ SKILL.md の実行フローを参照。要点:
 
 - `input` / `output` の存在と型、`ops` の各要素の `type` が既知であること、および欠落すると sharp 側で不可解な TypeError や暗黙の挙動変化になる必須フィールド（`crop`/`extract` の座標・寸法、`rotate.angle`、`tint.color`、`composite.input`、`format.format`）をスクリプト側で検証し、`SpecError`（exit code 2）で報告する
 - それ以外のパラメータ検証は sharp 自体のバリデーションに委譲する（sharp のエラーメッセージは十分具体的）。sharp のエラーは exit code 1
-- 未知の op type は許容しない（typo の握り潰しを防ぐ）
+- 未知の op type、spec の未知のトップレベルキー（`input` / `output` / `ops` 以外）、op ごとの未知のフィールドは許容しない（typo の握り潰しを防ぐ）。未知のキーは黙って無視され typo が成功扱いになるため、op ごとの許可フィールドリスト（`OP_FIELDS`）で検証し、許可されるキー一覧をエラーメッセージに含める。`resize` / `format` は op オブジェクトをそのまま sharp の `resize()` / `toFormat()` に渡すため、sharp の `ResizeOptions` と各フォーマットの出力オプションのキーも許可する。これらは `Record<keyof ..., true>` で定義し、sharp 更新でオプションが増減すると型エラーになるようにしている
 
 ### ops → sharp メソッドの対応
 
@@ -151,6 +151,7 @@ sharp は 1 インスタンス = 1 パイプラインであり、同種操作の
 3. **出力ディレクトリ自動作成**: 存在しないネストされた出力パスでも成功する
 4. **composite**: `gravity` 指定のオーバーレイ合成が成功し、ベース画像の寸法が維持される
 5. **未知の op type**: `SpecError` で fail し、メッセージに op 名が含まれる
+   - spec の未知のトップレベルキー・op の未知のフィールドも `SpecError` で fail し、メッセージに該当キーと許可キー一覧が含まれる
 6. **存在しない spec**: `SpecError` で fail する
 7. **imageInfo**: フォーマット・寸法・アルファ有無・ファイルサイズを返す
 

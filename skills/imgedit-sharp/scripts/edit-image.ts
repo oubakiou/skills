@@ -2,7 +2,18 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { OutputInfo, Sharp, SharpConstructor } from 'sharp'
+import type {
+  AvifOptions,
+  GifOptions,
+  JpegOptions,
+  OutputInfo,
+  PngOptions,
+  ResizeOptions,
+  Sharp,
+  SharpConstructor,
+  TiffOptions,
+  WebpOptions,
+} from 'sharp'
 
 // 同梱 wasm32 ビルド (scripts/vendor/node_modules/) を bare specifier で解決させるため、
 // vendor/ 配下を基点にした require を使う。anchor.cjs は実在しない解決基点用パス
@@ -145,25 +156,104 @@ interface RawSpec {
   ops?: EditOp[]
 }
 
-const KNOWN_OP_TYPES = new Set([
-  'resize',
-  'crop',
-  'extract',
-  'rotate',
-  'flip',
-  'flop',
-  'extend',
-  'trim',
-  'flatten',
-  'grayscale',
-  'negate',
-  'blur',
-  'sharpen',
-  'tint',
-  'modulate',
-  'composite',
-  'format',
-])
+const SPEC_KEYS: readonly string[] = ['input', 'output', 'ops']
+
+// resize / format op は op オブジェクトをそのまま sharp に渡すため、sharp のオプションも許可する。
+// Record にすることで sharp の型にオプションが増減した際に型エラーで追従漏れを検出できる
+const RESIZE_OPTIONS: Record<keyof ResizeOptions, true> = {
+  background: true,
+  fastShrinkOnLoad: true,
+  fit: true,
+  height: true,
+  kernel: true,
+  position: true,
+  width: true,
+  withoutEnlargement: true,
+  withoutReduction: true,
+}
+
+type FormatOptionKey = keyof (AvifOptions &
+  GifOptions &
+  JpegOptions &
+  PngOptions &
+  TiffOptions &
+  WebpOptions)
+
+const FORMAT_OPTIONS: Record<FormatOptionKey | 'format', true> = {
+  adaptiveFiltering: true,
+  alphaQuality: true,
+  bigtiff: true,
+  bitdepth: true,
+  chromaSubsampling: true,
+  colors: true,
+  colours: true,
+  compression: true,
+  compressionLevel: true,
+  delay: true,
+  dither: true,
+  effort: true,
+  exact: true,
+  force: true,
+  format: true,
+  interFrameMaxError: true,
+  interPaletteMaxError: true,
+  keepDuplicateFrames: true,
+  loop: true,
+  lossless: true,
+  minSize: true,
+  miniswhite: true,
+  mixed: true,
+  mozjpeg: true,
+  nearLossless: true,
+  optimiseCoding: true,
+  optimiseScans: true,
+  optimizeCoding: true,
+  optimizeScans: true,
+  overshootDeringing: true,
+  palette: true,
+  predictor: true,
+  preset: true,
+  progressive: true,
+  pyramid: true,
+  quality: true,
+  quantisationTable: true,
+  quantizationTable: true,
+  resolutionUnit: true,
+  reuse: true,
+  smartDeblock: true,
+  smartSubsample: true,
+  tile: true,
+  tileHeight: true,
+  tileWidth: true,
+  trellisQuantisation: true,
+  tune: true,
+  xres: true,
+  yres: true,
+}
+const CROP_FIELDS = ['left', 'top', 'width', 'height']
+
+// 未知のキーは黙って無視され typo が成功扱いになるため、許可リストで検証して spec エラーにする
+const OP_FIELDS: Record<EditOp['type'], readonly string[]> = {
+  blur: ['sigma'],
+  composite: ['input', 'left', 'top', 'gravity', 'blend'],
+  crop: CROP_FIELDS,
+  extend: ['top', 'bottom', 'left', 'right', 'background'],
+  extract: CROP_FIELDS,
+  flatten: ['background'],
+  flip: [],
+  flop: [],
+  format: Object.keys(FORMAT_OPTIONS),
+  grayscale: [],
+  modulate: ['brightness', 'saturation', 'hue', 'lightness'],
+  negate: [],
+  resize: Object.keys(RESIZE_OPTIONS),
+  rotate: ['angle', 'background'],
+  sharpen: ['sigma'],
+  tint: ['color'],
+  trim: ['threshold'],
+}
+
+const KNOWN_OP_TYPES = new Set(Object.keys(OP_FIELDS))
 
 class SpecError extends Error {
   public override name = 'SpecError'
@@ -212,12 +302,30 @@ const assertRequiredFields = (op: EditOp): void => {
   }
 }
 
-const parseSpecText = (raw: string): RawSpec => {
+const assertNoUnknownKeys = (value: object, allowed: readonly string[], label: string): void => {
+  const unknownKeys = Object.keys(value).filter((key) => !allowed.includes(key))
+  if (unknownKeys.length > 0) {
+    throw new SpecError(
+      `${label} has unknown field(s): ${unknownKeys.map((key) => JSON.stringify(key)).join(', ')}. Allowed: ${allowed.join(', ')}`
+    )
+  }
+}
+
+const parseJson = (raw: string): unknown => {
   try {
-    return JSON.parse(raw) ?? {}
+    return JSON.parse(raw)
   } catch (error) {
     throw new SpecError(`spec is not valid JSON: ${String(error)}`)
   }
+}
+
+const parseSpecText = (raw: string): RawSpec => {
+  const parsed = parseJson(raw)
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new SpecError('spec must be a JSON object')
+  }
+  assertNoUnknownKeys(parsed, SPEC_KEYS, 'spec')
+  return parsed
 }
 
 const opTypeOf = (op: unknown): string => {
@@ -235,6 +343,7 @@ const assertKnownOps = (ops: EditOp[]): void => {
         `unknown op type: ${JSON.stringify(opType)}. Supported: ${[...KNOWN_OP_TYPES].join(', ')}`
       )
     }
+    assertNoUnknownKeys(op, ['type', ...(OP_FIELDS[op.type] ?? [])], `op "${opType}"`)
     assertRequiredFields(op)
   }
 }
@@ -531,17 +640,76 @@ if (import.meta.vitest) {
       expect(await imageInfo(outputPath)).toMatchObject({ height: 300, width: 400 })
     })
 
-    it('未知の op type は SpecError で失敗する', async () => {
-      const dir = testDir('unknown-op')
+    describe('spec の検証', () => {
+      it('未知の op type は SpecError で失敗する', async () => {
+        const dir = testDir('unknown-op')
+        const inputPath = path.join(dir, 'input.png')
+        await writeFixturePng(inputPath)
+        const specPath = writeSpec(dir, {
+          input: inputPath,
+          ops: [{ type: 'sepia' }],
+          output: path.join(dir, 'out.png'),
+        })
+
+        await expect(editImage(specPath)).rejects.toThrow(/unknown op type: "sepia"/)
+      })
+
+      it('spec の未知のキーは SpecError で失敗する', async () => {
+        const dir = testDir('unknown-spec-key')
+        const inputPath = path.join(dir, 'input.png')
+        await writeFixturePng(inputPath)
+        const specPath = writeSpec(dir, {
+          input: inputPath,
+          operations: [{ type: 'resize', width: 100 }],
+          output: path.join(dir, 'out.png'),
+        })
+
+        await expect(editImage(specPath)).rejects.toThrow(
+          /spec has unknown field\(s\): "operations"\. Allowed: input, output, ops/
+        )
+      })
+
+      it('JSON object 以外の spec は SpecError で失敗する', async () => {
+        const dir = testDir('non-object-spec')
+        const specPath = path.join(dir, 'spec.json')
+        writeFileSync(specPath, '[]')
+
+        await expect(editImage(specPath)).rejects.toThrow(/spec must be a JSON object/)
+      })
+
+      it('op の未知のフィールドは SpecError で失敗する', async () => {
+        const dir = testDir('unknown-op-field')
+        const inputPath = path.join(dir, 'input.png')
+        await writeFixturePng(inputPath)
+        const specPath = writeSpec(dir, {
+          input: inputPath,
+          ops: [{ type: 'resize', widht: 100 }],
+          output: path.join(dir, 'out.png'),
+        })
+
+        await expect(editImage(specPath)).rejects.toThrow(
+          /op "resize" has unknown field\(s\): "widht"\. Allowed: type, .*\bwidth\b/
+        )
+      })
+    })
+
+    it('resize / format op は表にない sharp のオプションも受け付ける', async () => {
+      const dir = testDir('sharp-passthrough-options')
       const inputPath = path.join(dir, 'input.png')
+      const outputPath = path.join(dir, 'out.png')
       await writeFixturePng(inputPath)
       const specPath = writeSpec(dir, {
         input: inputPath,
-        ops: [{ type: 'sepia' }],
-        output: path.join(dir, 'out.png'),
+        ops: [
+          { kernel: 'nearest', type: 'resize', width: 100 },
+          { format: 'png', palette: true, type: 'format' },
+        ],
+        output: outputPath,
       })
 
-      await expect(editImage(specPath)).rejects.toThrow(/unknown op type: "sepia"/)
+      await editImage(specPath)
+
+      expect(await imageInfo(outputPath)).toMatchObject({ format: 'png', width: 100 })
     })
 
     it('存在しない spec ファイルは SpecError で失敗する', async () => {
