@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { compile } from 'vega-lite'
 import { loader, logger, parse, View, Warn } from 'vega'
 import { initWasm, Resvg } from '@resvg/resvg-wasm'
@@ -15,7 +15,12 @@ const isCliEntry = (): boolean => {
   if (typeof entryPath !== 'string') {
     return false
   }
-  return import.meta.url === pathToFileURL(entryPath).href
+  // import.meta.url は symlink 解決後の実パス、argv[1] は起動時のパスのままなので実パスに揃えて比較する
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entryPath)
+  } catch {
+    return false
+  }
 }
 
 const isDelegatedUrl = (uri: string): boolean => {

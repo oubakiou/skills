@@ -24,5 +24,5 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
   exit 2
 fi
 
-SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SKILL_DIR="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 node "$SKILL_DIR/scripts/edit-image.ts" "$@"

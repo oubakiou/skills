@@ -87,11 +87,11 @@ main agent
 ## 3. 動作環境と制約
 
 - **実行環境は Node.js >= 18**: バンドル済みの `vl2svg.mjs` を `node` で実行するため。リポジトリの guarded 系スキルは Node.js 23.6+ を要求するが、本スキルは TypeScript の直接実行を行わないため 18 以上で動作する
-- **外部パッケージのバンドル同梱**: `vega`（6.2.0）と `vega-lite`（6.4.3）を Vite（`vp build`）で単一の ESM ファイル `scripts/vl2svg.mjs` にバンドルし、PNG 変換用に `@resvg/resvg-wasm` の `resvg.wasm`、文字描画用に Noto Sans JP Regular TTF を同梱する。追加の `npm install` は不要。guarded 系スキルの「依存ゼロ」方針とは異なり、チャートレンダリングと画像変換という性質上外部パッケージへの依存は不可避だが、バンドルにより配布時点で自己完結する
+- **外部パッケージのバンドル同梱**: `vega`（6.4.0）と `vega-lite`（6.5.0）を Vite（`vp build`）で単一の ESM ファイル `scripts/vl2svg.mjs` にバンドルし、PNG 変換用に `@resvg/resvg-wasm` の `resvg.wasm`、文字描画用に Noto Sans JP Regular TTF を同梱する。追加の `npm install` は不要。guarded 系スキルの「依存ゼロ」方針とは異なり、チャートレンダリングと画像変換という性質上外部パッケージへの依存は不可避だが、バンドルにより配布時点で自己完結する
 - **実行速度**: バンドルからの直接実行で約 0.3-0.5 秒。初回ダウンロードの遅延なし
 - **オフライン環境**: バンドル、WASM、フォントが同梱されているため、インストール後は完全にオフラインで動作する
 - **canvas 非同梱**: `vega` はテキスト測定のために `canvas` パッケージ（node-canvas）をオプショナル依存として持つが、バンドルには含めていない。テキストのバウンディングボックス計算が近似値になり、ラベルの位置が微妙にずれる場合がある。SVG の基本的なレンダリングには影響しない
-- **開発・再ビルド環境は Node.js >= 20**: `vega-lite` 6.x の package metadata が Node.js 20 以上を要求するため、`vl2svg.mjs` の再生成は Node.js 20 以上で行う
+- **開発・再ビルド環境は Node.js >= 22**: `vega-lite` 6.5 の package metadata が Node.js 22 以上を要求するため、`vl2svg.mjs` の再生成は Node.js 22 以上で行う
 - **ビルド方法**: ソース `scripts/vl2svg.ts` を変更した場合、`skills/dataviz-svg/` ディレクトリで `vp build -c vite.build.ts` を実行して `scripts/vl2svg.mjs`、`scripts/resvg.wasm`、フォント asset を再生成する。ビルドにはルート `package.json` の devDependencies にある `vega` / `vega-lite` / `@resvg/resvg-wasm` / `@expo-google-fonts/noto-sans-jp` が必要。`vite.build.ts` は `import.meta.vitest` を `undefined` に置換し、in-source test を配布 bundle から除外する
 
 ## 4. ディレクトリ構成
@@ -290,7 +290,7 @@ SVG にフォントは埋め込まれない。レンダリング環境のシス�
 - **PNG 用フォント同梱**: WASM 版 resvg は実行環境の system font を利用できない場合があるため、PNG 変換時は Noto Sans JP Regular を明示的に読み込む
 - **インタラクティブ性なし**: SVG 出力は静的画像であり、Vega-Lite のインタラクティブ機能（selection、params、条件付きエンコーディング）は反映されない。ホバーツールチップ・ズーム・フィルタが主要件の場合は HTML embed を案内する
 - **canvas 非同梱**: バンドルに `node-canvas` を含めていないため、Vega のテキスト測定が近似値になる。大半のチャートでは問題にならないが、長い日本語ラベルの位置計算で微妙なずれが発生する可能性がある
-- **バンドルの Vega-Lite バージョン固定**: バンドルに含まれる `vega-lite`（6.4.3）と `vega`（6.2.0）は `vp build` 時のバージョンで固定される。更新するにはソース `vl2svg.ts` の依存を更新して再ビルドが必要
+- **バンドルの Vega-Lite バージョン固定**: バンドルに含まれる `vega-lite`（6.5.0）と `vega`（6.4.0）は `vp build` 時のバージョンで固定される。更新するにはソース `vl2svg.ts` の依存を更新して再ビルドが必要
 - **バンドルサイズ**: `vl2svg.mjs`、`resvg.wasm`、フォント asset は git 管理下に置くため、頻繁なバージョン更新はリポジトリサイズに影響する。WASM は platform 共通で、native binary を platform 別に同梱するよりサイズを抑えやすい
 - **third-party license notice**: 同梱 runtime asset は `THIRD_PARTY_NOTICES.md` で管理する。`@resvg/resvg-wasm` は MPL-2.0、Noto Sans JP フォントは OFL-1.1 として扱う
 - **バンドルは formatter / linter 対象外**: `vl2svg.mjs` は `vite.config.ts` の `ignorePatterns` で `vp check` の対象から外す。品質確認は `vl2svg.ts` の lint / type check、`vp build -c vite.build.ts` による再生成、レンダリング smoke test で行う

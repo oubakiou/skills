@@ -15,7 +15,7 @@ if [[ ! -f "$SPEC_FILE" ]]; then
   exit 1
 fi
 
-SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SKILL_DIR="$(cd -P "$(dirname "$0")/.." && pwd -P)"
 
 if [[ -n "$PNG_OUTPUT_FILE" ]]; then
   node "$SKILL_DIR/scripts/vl2svg.mjs" "$SPEC_FILE" "$OUTPUT_FILE" "$PNG_OUTPUT_FILE"

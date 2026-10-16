@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import type { OutputInfo, Sharp, SharpConstructor } from 'sharp'
 
 // 同梱 wasm32 ビルド (scripts/vendor/node_modules/) を bare specifier で解決させるため、
@@ -390,7 +390,12 @@ const isCliEntry = (): boolean => {
   if (typeof entryPath !== 'string') {
     return false
   }
-  return import.meta.url === pathToFileURL(entryPath).href
+  // import.meta.url は symlink 解決後の実パス、argv[1] は起動時のパスのままなので実パスに揃えて比較する
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(entryPath)
+  } catch {
+    return false
+  }
 }
 
 const runInfoCli = async (imagePath: string | undefined): Promise<void> => {

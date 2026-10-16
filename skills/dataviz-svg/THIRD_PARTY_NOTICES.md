@@ -17,7 +17,7 @@ The distributed skill artifact also includes the following third-party runtime c
 ## Noto Sans JP
 
 - Package: `@expo-google-fonts/noto-sans-jp`
-- Version: `0.4.3`
+- Version: `0.4.4`
 - Font license: OFL-1.1
 - Runtime files:
   - `scripts/NotoSansJP_400Regular.ttf`

@@ -6,7 +6,7 @@ The distributed skill artifact also includes the following third-party runtime c
 ## sharp
 
 - Package: `sharp`
-- Version: `0.35.3`
+- Version: `0.35.5`
 - License: Apache-2.0
 - Upstream: https://github.com/lovell/sharp
 - npm package: https://www.npmjs.com/package/sharp
@@ -14,7 +14,7 @@ The distributed skill artifact also includes the following third-party runtime c
 ## @img/sharp-wasm32
 
 - Package: `@img/sharp-wasm32`
-- Version: `0.35.3`
+- Version: `0.35.5`
 - License: `Apache-2.0 AND LGPL-3.0-or-later AND MIT`
 - libvips (LGPL-3.0-or-later) の WebAssembly ビルドと、そこに静的リンクされる画像コーデック群
   (aom, cgif, libexif, expat, glib, libheif, highway, imagequant, lcms, mozjpeg, libpng, resvg, libtiff, libuhdr, libwebp, zlib-ng 等) を含む。
@@ -32,7 +32,7 @@ The distributed skill artifact also includes the following third-party runtime c
 ## @emnapi/runtime
 
 - Package: `@emnapi/runtime`
-- Version: `1.11.2`
+- Version: `1.11.3`
 - License: MIT
 - npm package: https://www.npmjs.com/package/@emnapi/runtime
 
